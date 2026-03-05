@@ -17,12 +17,11 @@ _supabase_client = None
 def get_supabase_client():
     global _supabase_client
     if _supabase_client is None:
-        # uploader.py línea ~20
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-    
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL y SUPABASE_SERVICE_KEY deben estar definidos")
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL y SUPABASE_SERVICE_KEY deben estar definidos")
 
         _supabase_client = create_client(url, key)
     return _supabase_client
