@@ -1,10 +1,17 @@
 {
     "name": "sicop-health",
     "private": true,
-    "workspaces": ["apps/*"],
+    "workspaces": [
+        "apps/*"
+    ],
     "scripts": {
-      "dev": "npm run dev --workspace=apps/web",
-      "build": "npm run build --workspace=apps/web"
+        "dev": "npm run dev --workspace=apps/web",
+        "build": "npm run build --workspace=apps/web"
+    },
+    "devDependencies": {
+        "autoprefixer": "^10.4.27",
+        "picocolors": "^1.1.1",
+        "postcss": "^8.5.8",
+        "tailwindcss": "^3.4.19"
     }
-  }
-  
+}

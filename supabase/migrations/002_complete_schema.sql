@@ -1,37 +1,69 @@
--- SICOP Health Intelligence - Schema Inicial
--- Fecha: Marzo 2026
+-- SICOP Health Intelligence - Complete Schema v2.1
+-- Consolidated schema with all tables, indices, views, and RLS policies
 
--- Habilitar extensiones necesarias
+-- ============================================
+-- Extensions
+-- ============================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================
--- Tabla principal: Licitaciones Médicas
+-- 1. Tabla Principal: Licitaciones Médicas
 -- ============================================
 CREATE TABLE IF NOT EXISTS licitaciones_medicas (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     numero_procedimiento  TEXT UNIQUE NOT NULL,
     descripcion           TEXT,
     institucion           TEXT,
-    tipo_procedimiento    TEXT,        -- LN, LA, LD, SI, etc.
-    clasificacion_unspsc  TEXT,        -- Código UNSPSC raw
+    tipo_procedimiento    TEXT,        -- LD, LY, LE, XE, PX, PE
+    clasificacion_unspsc  TEXT,        -- Código UNSPSC legacy
     categoria             TEXT,        -- MEDICAMENTO | EQUIPAMIENTO | INSUMO | SERVICIO
     monto_colones         NUMERIC,
     adjudicatario         TEXT,
     estado                TEXT,        -- Publicado | Adjudicado | Desierto | Cancelado
     fecha_tramite         DATE,
     fecha_limite_oferta   DATE,
-    raw_data              JSONB,       -- Fila completa del CSV para debugging
-    created_at            TIMESTAMPTZ  DEFAULT NOW(),
-    updated_at            TIMESTAMPTZ  DEFAULT NOW()
+
+    -- v2.1 columns
+    unspsc_cd             TEXT,        -- código UNSPSC 8 dígitos
+    supplier_cd           TEXT,        -- cédula proveedor
+    modalidad             TEXT,        -- licitación pública/directa
+    excepcion_cd          TEXT,        -- Art. 55/60/66 LGCP
+    biddoc_end_dt         TIMESTAMPTZ, -- deadline ofertas
+    adj_firme_dt          TIMESTAMPTZ, -- firmeza adjudicación
+    vigencia_contrato     TEXT,        -- duración contrato
+    unidad_vigencia       TEXT,        -- años/meses
+    cartel_cate           TEXT,        -- categoría del cartel
+
+    raw_data              JSONB,
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Comentarios
 COMMENT ON TABLE licitaciones_medicas IS 'Licitaciones médicas extraídas de SICOP';
 COMMENT ON COLUMN licitaciones_medicas.categoria IS 'Categoría médica: MEDICAMENTO, EQUIPAMIENTO, INSUMO, SERVICIO';
-COMMENT ON COLUMN licitaciones_medicas.raw_data IS 'Datos crudos del CSV para referencia';
+COMMENT ON COLUMN licitaciones_medicas.raw_data IS 'Datos crudos del API para referencia';
 
 -- ============================================
--- Tabla: Histórico de Precios por Item
+-- 2. Tabla: Modificaciones de Licitaciones
+-- ============================================
+CREATE TABLE IF NOT EXISTS licitaciones_modificaciones (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    inst_cartel_no  TEXT NOT NULL,   -- referencia a licitación (no FK obligatoria)
+    cartel_no       TEXT,
+    proce_type      TEXT,
+    inst_nm         TEXT,
+    cartel_nm       TEXT,
+    openbid_dt      TIMESTAMPTZ,     -- nueva fecha tras modificación
+    biddoc_start_dt TIMESTAMPTZ,
+    mod_reason      TEXT,            -- motivo de modificación
+    raw_data        JSONB,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+COMMENT ON TABLE licitaciones_modificaciones IS 'Modificaciones a licitaciones (fechas, montos, etc.)';
+
+-- ============================================
+-- 3. Tabla: Histórico de Precios por Item
 -- ============================================
 CREATE TABLE IF NOT EXISTS precios_historicos (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,7 +82,7 @@ CREATE TABLE IF NOT EXISTS precios_historicos (
 COMMENT ON TABLE precios_historicos IS 'Histórico de precios por ítem licitado';
 
 -- ============================================
--- Tabla: Configuración de Alertas por Usuario
+-- 4. Tabla: Configuración de Alertas por Usuario
 -- ============================================
 CREATE TABLE IF NOT EXISTS alertas_config (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,7 +99,7 @@ CREATE TABLE IF NOT EXISTS alertas_config (
 COMMENT ON TABLE alertas_config IS 'Configuración de alertas personalizadas por usuario';
 
 -- ============================================
--- Tabla: Instituciones de Salud
+-- 5. Tabla: Instituciones de Salud
 -- ============================================
 CREATE TABLE IF NOT EXISTS instituciones_salud (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,7 +116,7 @@ CREATE TABLE IF NOT EXISTS instituciones_salud (
 COMMENT ON TABLE instituciones_salud IS 'Catálogo de instituciones de salud de Costa Rica';
 
 -- ============================================
--- Índices para Performance
+-- Índices
 -- ============================================
 
 -- Licitaciones
@@ -103,8 +135,21 @@ CREATE INDEX IF NOT EXISTS idx_licitaciones_inst
 CREATE INDEX IF NOT EXISTS idx_licitaciones_unspsc
     ON licitaciones_medicas(clasificacion_unspsc);
 
+CREATE INDEX IF NOT EXISTS idx_licitaciones_unspsc_cd
+    ON licitaciones_medicas(unspsc_cd);
+
+CREATE INDEX IF NOT EXISTS idx_licitaciones_supplier
+    ON licitaciones_medicas(supplier_cd);
+
 CREATE INDEX IF NOT EXISTS idx_licitaciones_numero
     ON licitaciones_medicas(numero_procedimiento);
+
+-- Modificaciones
+CREATE INDEX IF NOT EXISTS idx_mod_inst_cartel_no
+    ON licitaciones_modificaciones(inst_cartel_no);
+
+CREATE INDEX IF NOT EXISTS idx_mod_created_at
+    ON licitaciones_modificaciones(created_at DESC);
 
 -- Precios históricos
 CREATE INDEX IF NOT EXISTS idx_precios_descripcion
@@ -133,14 +178,14 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Aplicar trigger a licitaciones_medicas
+-- Trigger: licitaciones_medicas
 DROP TRIGGER IF EXISTS update_licitaciones_updated_at ON licitaciones_medicas;
 CREATE TRIGGER update_licitaciones_updated_at
     BEFORE UPDATE ON licitaciones_medicas
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Aplicar trigger a alertas_config
+-- Trigger: alertas_config
 DROP TRIGGER IF EXISTS update_alertas_updated_at ON alertas_config;
 CREATE TRIGGER update_alertas_updated_at
     BEFORE UPDATE ON alertas_config
@@ -148,58 +193,87 @@ CREATE TRIGGER update_alertas_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- Políticas de Row Level Security (RLS)
+-- Vistas
+-- ============================================
+
+-- Vista: Licitaciones activas (no desiertas ni canceladas)
+CREATE OR REPLACE VIEW licitaciones_activas AS
+SELECT *
+FROM licitaciones_medicas
+WHERE estado NOT IN ('Desierto', 'Cancelado', 'Desistido')
+   OR estado IS NULL
+ORDER BY fecha_tramite DESC NULLS LAST;
+
+-- Vista: Resumen por categoría
+CREATE OR REPLACE VIEW resumen_por_categoria AS
+SELECT
+    categoria,
+    COUNT(*) as total,
+    COUNT(CASE WHEN estado = 'Publicado' THEN 1 END) as publicados,
+    COUNT(CASE WHEN estado = 'Adjudicado' THEN 1 END) as adjudicados,
+    SUM(monto_colones) as monto_total
+FROM licitaciones_medicas
+GROUP BY categoria
+ORDER BY total DESC;
+
+-- Vista: Licitaciones por vencer (próximos 7 días)
+CREATE OR REPLACE VIEW licitaciones_por_vencer AS
+SELECT *
+FROM licitaciones_medicas
+WHERE fecha_limite_oferta BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '7 days')
+    AND estado = 'Publicado'
+ORDER BY fecha_limite_oferta ASC;
+
+COMMENT ON VIEW licitaciones_por_vencer IS 'Licitaciones que vencen en los próximos 7 días';
+
+-- ============================================
+-- Row Level Security (RLS)
 -- ============================================
 
 -- Habilitar RLS
 ALTER TABLE licitaciones_medicas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE licitaciones_modificaciones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE precios_historicos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alertas_config ENABLE ROW LEVEL SECURITY;
 
--- Política: Licitaciones son públicas para lectura
+-- Políticas: licitaciones_medicas (públicas para lectura)
 DROP POLICY IF EXISTS licitaciones_select_public ON licitaciones_medicas;
 CREATE POLICY licitaciones_select_public ON licitaciones_medicas
-    FOR SELECT
-    USING (true);
+    FOR SELECT USING (true);
 
--- Política: Solo usuarios autenticados pueden ver precios históricos
+-- Políticas: licitaciones_modificaciones (públicas para lectura)
+DROP POLICY IF EXISTS mod_select_public ON licitaciones_modificaciones;
+CREATE POLICY mod_select_public ON licitaciones_modificaciones
+    FOR SELECT USING (true);
+
+-- Políticas: precios_historicos (solo usuarios autenticados)
 DROP POLICY IF EXISTS precios_select_auth ON precios_historicos;
 CREATE POLICY precios_select_auth ON precios_historicos
-    FOR SELECT
-    TO authenticated
-    USING (true);
+    FOR SELECT TO authenticated USING (true);
 
--- Política: Usuarios solo ven/editan sus propias alertas
+-- Políticas: alertas_config (usuarios solo ven/editan las suyas)
 DROP POLICY IF EXISTS alertas_select_own ON alertas_config;
 CREATE POLICY alertas_select_own ON alertas_config
-    FOR SELECT
-    TO authenticated
-    USING (auth.uid() = user_id);
+    FOR SELECT TO authenticated USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS alertas_insert_own ON alertas_config;
 CREATE POLICY alertas_insert_own ON alertas_config
-    FOR INSERT
-    TO authenticated
-    WITH CHECK (auth.uid() = user_id);
+    FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS alertas_update_own ON alertas_config;
 CREATE POLICY alertas_update_own ON alertas_config
-    FOR UPDATE
-    TO authenticated
+    FOR UPDATE TO authenticated
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS alertas_delete_own ON alertas_config;
 CREATE POLICY alertas_delete_own ON alertas_config
-    FOR DELETE
-    TO authenticated
-    USING (auth.uid() = user_id);
+    FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
 -- ============================================
 -- Datos Iniciales
 -- ============================================
 
--- Insertar instituciones de salud comunes de Costa Rica
 INSERT INTO instituciones_salud (nombre, codigo_ccss, tipo, region) VALUES
     ('Hospital San Juan de Dios', 'HSD', 'Hospital', 'GAM'),
     ('Hospital México', 'HM', 'Hospital', 'GAM'),
@@ -218,88 +292,19 @@ INSERT INTO instituciones_salud (nombre, codigo_ccss, tipo, region) VALUES
     ('Hospital de Limón', 'HLM', 'Hospital', 'Caribe')
 ON CONFLICT DO NOTHING;
 
--- ============================================
--- Vistas Útiles
--- ============================================
 
--- Vista de licitaciones activas (no desiertas ni canceladas)
-CREATE OR REPLACE VIEW licitaciones_activas AS
-SELECT *
-FROM licitaciones_medicas
-WHERE estado NOT IN ('Desierto', 'Cancelado', 'Desistido')
-ORDER BY fecha_tramite DESC;
-
--- Vista de resumen por categoría
-CREATE OR REPLACE VIEW resumen_por_categoria AS
-SELECT
-    categoria,
-    COUNT(*) as total,
-    COUNT(CASE WHEN estado = 'Publicado' THEN 1 END) as publicados,
-    COUNT(CASE WHEN estado = 'Adjudicado' THEN 1 END) as adjudicados,
-    SUM(monto_colones) as monto_total
-FROM licitaciones_medicas
-GROUP BY categoria
-ORDER BY total DESC;
-
--- Vista de licitaciones por vencer (próximos 7 días)
-CREATE OR REPLACE VIEW licitaciones_por_vencer AS
-SELECT *
-FROM licitaciones_medicas
-WHERE fecha_limite_oferta BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '7 days')
-    AND estado = 'Publicado'
-ORDER BY fecha_limite_oferta ASC;
-
-COMMENT ON VIEW licitaciones_por_vencer IS 'Licitaciones que vencen en los próximos 7 días';
-
--- Agregar al schema v2
-CREATE TABLE IF NOT EXISTS licitaciones_modificaciones (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    inst_cartel_no  TEXT NOT NULL,   -- NO es FK obligatoria — puede llegar antes que la licitación
-    cartel_no       TEXT,
-    proce_type      TEXT,
-    inst_nm         TEXT,
-    cartel_nm       TEXT,
-    openbid_dt      TIMESTAMPTZ,     -- Nueva fecha tras la modificación
-    biddoc_start_dt TIMESTAMPTZ,
-    mod_reason      TEXT,            -- "Fecha/hora de apertura de ofertas", etc.
-    raw_data        JSONB,
-    created_at      TIMESTAMPTZ DEFAULT NOW()
-    -- Sin UNIQUE — el mismo cartel puede tener N modificaciones
-);
-
-CREATE INDEX IF NOT EXISTS idx_mod_inst_cartel_no
-    ON licitaciones_modificaciones(inst_cartel_no);
-
-CREATE INDEX IF NOT EXISTS idx_mod_created_at
-    ON licitaciones_modificaciones(created_at DESC);
-
-    ALTER TABLE licitaciones_medicas 
-ADD COLUMN IF NOT EXISTS cartel_cate TEXT;
-
-
--- RLS
-ALTER TABLE licitaciones_modificaciones ENABLE ROW LEVEL SECURITY;
-CREATE POLICY mod_select_public ON licitaciones_modificaciones
-    FOR SELECT USING (true);
-
--- Migration v2.1: columnas nuevas del parser v2.1
--- Safe: usa ADD COLUMN IF NOT EXISTS, no rompe datos existentes
-
+-- Agregar columna faltante
 ALTER TABLE licitaciones_medicas
-  ADD COLUMN IF NOT EXISTS tipo_procedimiento  TEXT,           -- LD, LY, LE, XE, PX, PE
-  ADD COLUMN IF NOT EXISTS unspsc_cd           TEXT,           -- código UNSPSC 8 dígitos
-  ADD COLUMN IF NOT EXISTS supplier_cd         TEXT,           -- cédula proveedor
-  ADD COLUMN IF NOT EXISTS modalidad           TEXT,           -- licitación pública/directa
-  ADD COLUMN IF NOT EXISTS excepcion_cd        TEXT,           -- Art. 55/60/66 LGCP
-  ADD COLUMN IF NOT EXISTS biddoc_end_dt       TIMESTAMPTZ,    -- deadline ofertas
-  ADD COLUMN IF NOT EXISTS adj_firme_dt        TIMESTAMPTZ,    -- firmeza adjudicación
-  ADD COLUMN IF NOT EXISTS vigencia_contrato   TEXT,           -- duración contrato
-  ADD COLUMN IF NOT EXISTS unidad_vigencia     TEXT;           -- años/meses
+    ADD COLUMN IF NOT EXISTS es_medica BOOLEAN DEFAULT FALSE;
 
--- Índice útil para clasificación primaria por UNSPSC
-CREATE INDEX IF NOT EXISTS idx_licitaciones_unspsc
-  ON licitaciones_medicas (unspsc_cd);
+-- Índice útil para filtrar en el dashboard
+CREATE INDEX IF NOT EXISTS idx_licitaciones_es_medica
+    ON licitaciones_medicas(es_medica);
 
--- Índice para proveedor (inteligencia competitiva)
-CREATE INDEX IF NOT EXISTS idx_licitaciones_supplier
-  ON licitaciones_medicas (supplier_cd);
+-- Refrescar schema cache de PostgREST
+NOTIFY pgrst, 'reload schema';
+
+-- ============================================
+-- Schema Cache Refresh
+-- ============================================
+NOTIFY pgrst, 'reload schema';

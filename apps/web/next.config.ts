@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Turbopack root is causing module resolution issues
+  // Reverting to default behavior
 };
 
 export default nextConfig;
