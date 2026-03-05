@@ -38,12 +38,10 @@ def upsert_licitaciones(rows: list[dict]):
     """
     Upsert de publicadas y adjudicadas en licitaciones_medicas.
     Conflict key: inst_cartel_no (UNIQUE en schema v2).
-    Los campos ya vienen normalizados desde parse_batch().
     """
     if not rows:
         return
 
-    # Deduplicar por inst_cartel_no antes de enviar
     seen = {}
     for row in rows:
         key = row.get("inst_cartel_no")
@@ -71,7 +69,6 @@ def insert_modificaciones(rows: list[dict]):
     if not rows:
         return
 
-    # Solo los campos que tiene la tabla modificaciones
     db_rows = [{
         "inst_cartel_no":   row.get("inst_cartel_no"),
         "cartel_no":        row.get("cartel_no"),
