@@ -2,7 +2,7 @@ name: SICOP ETL Pipeline
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 * * * *'   # cada hora
   workflow_dispatch:
 
 env:
@@ -10,7 +10,7 @@ env:
 
 concurrency:
   group: sicop-etl
-  cancel-in-progress: false
+  cancel-in-progress: false  # espera que el run anterior termine, no lo cancela
 
 jobs:
   etl:
@@ -29,9 +29,8 @@ jobs:
           cache-dependency-path: services/etl/requirements.txt
 
       - name: Install dependencies
-        run: |
-          cd services/etl
-          pip install -r requirements.txt
+        run: pip install -r services/etl/requirements.txt
+        # Sin cd — más limpio, mismo resultado
 
       - name: Run ETL Pipeline
         env:
@@ -52,17 +51,22 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: etl-logs
+          name: etl-logs-${{ github.run_id }}   # run_id evita colisión entre runs fallidos
           path: services/etl/*.log
           retention-days: 7
 
       - name: Notify on failure
         if: failure()
-        uses: slackapi/slack-github-action@v2.1.0
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "🚨 *SICOP ETL falló* — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver logs>"
-            }
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+        # Solo ejecuta si el secret existe — guard via env var
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            curl -s -X POST "$SLACK_WEBHOOK" \
+              -H 'Content-type: application/json' \
+              --data '{
+                "text": "🚨 *SICOP ETL falló* — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Ver logs>"
+              }'
+          else
+            echo "SLACK_WEBHOOK_URL no configurado, skipping notification"
+          fi
