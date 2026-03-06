@@ -16,8 +16,15 @@ import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "luci
 import { Badge } from "./ui/badge";
 import type { Licitacion, Categoria, TypeKey } from "@/lib/types";
 
+// Allow partial Licitacion for dashboard preview (subset of fields)
+type LicitacionLike = Pick<
+  Licitacion,
+  'id' | 'numero_procedimiento' | 'descripcion' | 'institucion' | 
+  'categoria' | 'monto_colones' | 'fecha_tramite' | 'estado' | 'es_medica'
+> & Partial<Pick<Licitacion, 'type_key' | 'raw_data'>>
+
 interface LicitacionesTableProps {
-  data: Licitacion[];
+  data: LicitacionLike[];
   showPagination?: boolean;
   pageSize?: number;
 }
@@ -64,7 +71,7 @@ export function LicitacionesTable({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
 
-  const columns: ColumnDef<Licitacion>[] = [
+  const columns: ColumnDef<LicitacionLike>[] = [
     {
       accessorKey: "numero_procedimiento",
       header: "ID",

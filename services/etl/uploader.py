@@ -1,8 +1,12 @@
 # services/etl/uploader.py
 """
-SICOP Uploader v2.3
-Schema v2.1 — mapeo parser → DB con dedup y DO UPDATE SET explícito.
-Fix v2.3: agrega es_medica al mapeo (_to_db_row).
+SICOP Uploader v2.9
+Changes vs v2.8:
+- _to_db_row: removidos aliases legacy (numero_procedimiento, descripcion,
+  institucion, adjudicatario, clasificacion_unspsc, fecha_tramite,
+  fecha_limite_oferta) — causaban 23505 UNIQUE violation en numero_procedimiento
+- _CAMPOS_BASE: sincronizado con _to_db_row limpio
+- Sin cambios en lógica de upsert, dedup, o insert_modificaciones
 """
 
 import os
@@ -23,6 +27,10 @@ def get_supabase_client():
         _supabase_client = create_client(url, key)
     return _supabase_client
 
+
+# ─────────────────────────────────────────────
+# MAPEOS
+# ─────────────────────────────────────────────
 
 CATEGORIA_MAP = {
     "MEDICAMENTO":    "MEDICAMENTO",
@@ -45,53 +53,20 @@ def _safe_categoria(row: dict) -> str | None:
     return CATEGORIA_MAP.get(cat)
 
 
-def _to_db_row(row: dict) -> dict:
-    """Mapea campos del parser al schema v2.1 de licitaciones_medicas."""
-    return {
-        # Core
-        "numero_procedimiento": row.get("inst_cartel_no"),
-        "descripcion":          row.get("cartel_nm"),
-        "institucion":          row.get("inst_nm"),
-        "estado":               ESTADO_MAP.get(row.get("type_key")),
+# ─────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────
 
-        # Procedimiento
-        "tipo_procedimiento":   row.get("tipo_procedimiento") or row.get("proce_type"),
-        "modalidad":            row.get("modalidad"),
-        "excepcion_cd":         row.get("excepcion_cd"),
-        "cartel_cate":          row.get("cartel_cate"),
-
-        # UNSPSC
-        "unspsc_cd":            row.get("unspsc_cd"),
-        "clasificacion_unspsc": row.get("unspsc_cd"),  # alias para vista legacy
-
-        # Proveedor
-        "adjudicatario":        row.get("supplier_nm"),
-        "supplier_cd":          row.get("supplier_cd"),
-
-        # Montos
-        "monto_colones":        row.get("amt"),
-
-        # Fechas
-        "fecha_tramite":        row.get("biddoc_start_dt"),
-        "fecha_limite_oferta":  row.get("biddoc_end_dt"),   # para vista licitaciones_por_vencer
-        "biddoc_end_dt":        row.get("biddoc_end_dt"),   # campo real v2.1
-        "adj_firme_dt":         row.get("adj_firme_dt"),
-
-        # Contrato
-        "vigencia_contrato":    row.get("vigencia_contrato"),
-        "unidad_vigencia":      row.get("unidad_vigencia"),
-
-        # Clasificación médica — v2.3: es_medica ahora incluido
-        "es_medica":            row.get("es_medica", False),
-        "categoria":            _safe_categoria(row),
-
-        # Raw
-        "raw_data":             row.get("raw_data"),
-    }
+def _f(row: dict, *keys):
+    """Retorna el primer valor no-None entre los keys dados."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
 
 
 def _dedup(rows: list[dict], key: str) -> tuple[list[dict], int]:
-    """Deduplica por key, quedándose con el último. Retorna (unique_rows, n_dupes)."""
     seen = {}
     for row in rows:
         k = row.get(key)
@@ -101,55 +76,251 @@ def _dedup(rows: list[dict], key: str) -> tuple[list[dict], int]:
     return unique, len(rows) - len(unique)
 
 
+def _filter_none(row: dict, keep_false_keys: set[str]) -> dict:
+    return {
+        k: v for k, v in row.items()
+        if v is not None or k in keep_false_keys
+    }
+
+
+_KEEP_FALSY = {"es_medica", "monto_colones"}
+
+# Campos permitidos en el payload de no-médicas (parcial)
+# No incluye es_medica ni categoria — no se persisten para no-médicas
+_CAMPOS_BASE = {
+    "instcartelno", "cartelno", "inst_code",
+    "instnm", "cartelnm",
+    "procetype", "tipo_procedimiento", "typekey", "estado",
+    "modalidad", "excepcion_cd", "cartel_cate", "mod_reason",
+    "unspsc_cd",
+    "supplier_nm", "supplier_cd",
+    "monto_colones", "currency_type", "detalle",
+    "biddoc_start_dt", "biddoc_end_dt",
+    "openbid_dt", "adj_firme_dt",
+    "vigencia_contrato", "unidad_vigencia",
+    "raw_data",
+}
+
+
+# ─────────────────────────────────────────────
+# EXEC HELPER
+# ─────────────────────────────────────────────
+
+def _exec_upsert(
+    client,
+    rows: list[dict],
+    label: str,
+    on_conflict: str = "instcartelno",
+) -> int:
+    """
+    Ejecuta upsert con manejo explícito de errores.
+    supabase-py >= 2.5 lanza PostgrestAPIError en constraint violations.
+    Retorna el número de rows confirmadas por la DB (0 en error).
+    """
+    try:
+        response = (
+            client
+            .table("licitaciones_medicas")
+            .upsert(rows, on_conflict=on_conflict, ignore_duplicates=False)
+            .execute()
+        )
+    except Exception as e:
+        logger.error(
+            f"[uploader] {label}: excepción en upsert — {type(e).__name__}: {e}. "
+            f"Primer instcartelno: {rows[0].get('instcartelno') if rows else 'N/A'}"
+        )
+        return 0
+
+    if response.data is None:
+        logger.error(
+            f"[uploader] {label}: response.data=None — posible schema mismatch. "
+            f"Primer row keys: {list(rows[0].keys()) if rows else '[]'}"
+        )
+        return 0
+
+    confirmed = len(response.data)
+    if confirmed != len(rows):
+        logger.warning(
+            f"[uploader] {label}: enviados={len(rows)} confirmados={confirmed} "
+            f"— {len(rows) - confirmed} rows no procesadas"
+        )
+
+    logger.info(f"[uploader] {label}: {confirmed} rows confirmadas por DB")
+    return confirmed
+
+
+# ─────────────────────────────────────────────
+# MAPEO PARSER → DB
+# ─────────────────────────────────────────────
+
+def _to_db_row(row: dict) -> dict:
+    """
+    Normaliza un row del parser (cualquier convención de keys) al schema v2.9.
+    _f() resuelve camelCase, snake_case, y lowercase sin guiones.
+    Aliases legacy (numero_procedimiento, descripcion, institucion, etc.)
+    removidos en v2.9 — causaban UNIQUE violation en numero_procedimiento.
+    """
+    instcartelno = _f(row, "instcartelno", "instCartelNo", "inst_cartel_no")
+    cartelnm     = _f(row, "cartelnm",     "cartelNm",     "cartel_nm")
+    instnm       = _f(row, "instnm",       "instNm",       "inst_nm")
+    cartelno     = _f(row, "cartelno",     "cartelNo",     "cartel_no")
+    procetype    = _f(row, "procetype",    "proceType",    "proce_type")
+    typekey      = _f(row, "typekey",      "typeKey",      "type_key")
+    suppliernm   = _f(row, "suppliernm",   "supplierNm",   "supplier_nm")
+    suppliercd   = _f(row, "suppliercd",   "supplierCd",   "supplier_cd")
+    unspsccd     = _f(row, "unspsccd",     "unspscCd",     "unspsc_cd")
+    currencytype = _f(row, "currencytype", "currencyType", "currency_type")
+    rawdata      = _f(row, "rawdata",      "raw_data")
+    biddocstart  = _f(row, "biddocstartdt",    "biddocStartDt",    "biddoc_start_dt")
+    biddocend    = _f(row, "biddocenddt",      "biddocEndDt",      "biddoc_end_dt")
+    openbiddt    = _f(row, "openbiddt",        "openbidDt",        "openbid_dt")
+    adjfirmedt   = _f(row, "adjfirmedt",       "adjFirmeDt",       "adj_firme_dt")
+    vigencia     = _f(row, "vigenciacontrato", "vigenciaContrato", "vigencia_contrato")
+    unidadvig    = _f(row, "unidadvigencia",   "unidadVigencia",   "unidad_vigencia")
+    excepcioncd  = _f(row, "excepcioncd",      "excepcionCd",      "excepcion_cd")
+    cartelcate   = _f(row, "cartelcate",       "cartelCate",       "cartel_cate")
+    modreason    = _f(row, "modreason",        "modReason",        "mod_reason")
+
+    return {
+        # — Identificadores —
+        "instcartelno":       instcartelno,
+        "cartelno":           cartelno,
+        "inst_code":          row.get("inst_code"),
+
+        # — Institución y descripción —
+        "instnm":             instnm,
+        "cartelnm":           cartelnm,
+
+        # — Procedimiento —
+        "procetype":          procetype,
+        "tipo_procedimiento": row.get("tipo_procedimiento"),
+        "typekey":            typekey,
+        "estado":             ESTADO_MAP.get(typekey or ""),
+        "modalidad":          row.get("modalidad"),
+        "excepcion_cd":       excepcioncd,
+        "cartel_cate":        cartelcate,
+        "mod_reason":         modreason,
+
+        # — Clasificación —
+        "unspsc_cd":          unspsccd,
+
+        # — Proveedor —
+        "supplier_nm":        suppliernm,
+        "supplier_cd":        suppliercd,
+
+        # — Montos —
+        "monto_colones":      row.get("amt"),
+        "currency_type":      currencytype,
+        "detalle":            row.get("detalle"),
+
+        # — Fechas —
+        "biddoc_start_dt":    biddocstart,
+        "biddoc_end_dt":      biddocend,
+        "openbid_dt":         openbiddt,
+        "adj_firme_dt":       adjfirmedt,
+        "vigencia_contrato":  vigencia,
+        "unidad_vigencia":    unidadvig,
+
+        # — Clasificación ETL —
+        "es_medica":          row.get("es_medica", False),
+        "categoria":          _safe_categoria(row),
+
+        # — Raw —
+        "raw_data":           rawdata,
+    }
+
+
+# ─────────────────────────────────────────────
+# UPSERT LICITACIONES
+# ─────────────────────────────────────────────
+
 def upsert_licitaciones(rows: list[dict]):
     if not rows:
         return
 
-    db_rows = []
-    for row in rows:
-        mapped = _to_db_row(row)
-        # es_medica es booleano — False es un valor válido, no filtrar con "if v is not None"
-        filtered = {
-            k: v for k, v in mapped.items()
-            if v is not None or k == "es_medica"
-        }
-        db_rows.append(filtered)
+    db_rows = [_filter_none(_to_db_row(row), _KEEP_FALSY) for row in rows]
 
-    unique_rows, dupes = _dedup(db_rows, "numero_procedimiento")
-    if dupes > 0:
-        logger.info(f"[uploader] {dupes} duplicados removidos")
+    sin_key = [r for r in db_rows if not r.get("instcartelno")]
+    if sin_key:
+        logger.warning(f"[uploader] {len(sin_key)} rows sin instcartelno — descartadas")
+        db_rows = [r for r in db_rows if r.get("instcartelno")]
 
-    get_supabase_client() \
-        .table("licitaciones_medicas") \
-        .upsert(unique_rows, on_conflict="numero_procedimiento", ignore_duplicates=False) \
-        .execute()
+    if not db_rows:
+        logger.error("[uploader] 0 rows válidas — verificar parser output keys")
+        return
 
-    logger.info(f"[uploader] {len(unique_rows)} licitaciones upserted")
-    print(f"[uploader] {len(unique_rows)} licitaciones upserted")
+    medicas = [r for r in db_rows if r.get("es_medica")]
+    no_medicas = [
+        {k: v for k, v in r.items() if k in _CAMPOS_BASE}
+        for r in db_rows if not r.get("es_medica")
+    ]
 
+    client = get_supabase_client()
+    total_confirmed = 0
+
+    if medicas:
+        medicas_u, dupes_m = _dedup(medicas, "instcartelno")
+        if dupes_m:
+            logger.info(f"[uploader] {dupes_m} duplicados removidos (médicas)")
+        total_confirmed += _exec_upsert(client, medicas_u, "médicas (completo)")
+
+    if no_medicas:
+        no_medicas_u, dupes_nm = _dedup(no_medicas, "instcartelno")
+        if dupes_nm:
+            logger.info(f"[uploader] {dupes_nm} duplicados removidos (no-médicas)")
+        total_confirmed += _exec_upsert(client, no_medicas_u, "no-médicas (parcial)")
+
+    print(
+        f"[uploader] {total_confirmed} confirmadas — "
+        f"{len(medicas)} médicas + {len(no_medicas)} no-médicas enviadas"
+    )
+
+
+# ─────────────────────────────────────────────
+# INSERT MODIFICACIONES
+# ─────────────────────────────────────────────
 
 def insert_modificaciones(rows: list[dict]):
     if not rows:
         return
 
-    db_rows = [{
-        "inst_cartel_no":   row.get("inst_cartel_no"),
-        "cartel_no":        row.get("cartel_no"),
-        "proce_type":       row.get("proce_type"),
-        "inst_nm":          row.get("inst_nm"),
-        "cartel_nm":        row.get("cartel_nm"),
-        "openbid_dt":       row.get("openbid_dt"),
-        "biddoc_start_dt":  row.get("biddoc_start_dt"),
-        "mod_reason":       row.get("mod_reason"),
-        "raw_data":         row.get("raw_data"),
-    } for row in rows]
+    db_rows = []
+    for row in rows:
+        r = {
+            "inst_cartel_no":  _f(row, "instcartelno",  "instCartelNo",  "inst_cartel_no"),
+            "cartel_no":       _f(row, "cartelno",       "cartelNo",      "cartel_no"),
+            "proce_type":      _f(row, "procetype",      "proceType",     "proce_type"),
+            "inst_nm":         _f(row, "instnm",         "instNm",        "inst_nm"),
+            "cartel_nm":       _f(row, "cartelnm",       "cartelNm",      "cartel_nm"),
+            "inst_code":       row.get("inst_code"),
+            "openbid_dt":      _f(row, "openbiddt",      "openbidDt",     "openbid_dt"),
+            "biddoc_start_dt": _f(row, "biddocstartdt",  "biddocStartDt", "biddoc_start_dt"),
+            "mod_reason":      _f(row, "modreason",      "modReason",     "mod_reason"),
+            "es_medica":       row.get("es_medica", False),
+            "categoria":       _safe_categoria(row),
+            "raw_data":        _f(row, "rawdata", "raw_data"),
+        }
+        db_rows.append(_filter_none(r, {"es_medica"}))
 
-    db_rows = [{k: v for k, v in r.items() if v is not None} for r in db_rows]
+    try:
+        response = (
+            get_supabase_client()
+            .table("licitaciones_modificaciones")
+            .insert(db_rows)
+            .execute()
+        )
+        confirmed = len(response.data) if response.data is not None else 0
+    except Exception as e:
+        logger.error(
+            f"[uploader] modificaciones: excepción en insert — {type(e).__name__}: {e}"
+        )
+        confirmed = 0
 
-    get_supabase_client() \
-        .table("licitaciones_modificaciones") \
-        .insert(db_rows) \
-        .execute()
+    if confirmed != len(db_rows):
+        logger.error(
+            f"[uploader] modificaciones: enviadas={len(db_rows)} confirmadas={confirmed}"
+        )
+    else:
+        logger.info(f"[uploader] {confirmed} modificaciones insertadas")
 
-    logger.info(f"[uploader] {len(db_rows)} modificaciones insertadas")
-    print(f"[uploader] {len(db_rows)} modificaciones insertadas")
+    print(f"[uploader] {confirmed} modificaciones insertadas")

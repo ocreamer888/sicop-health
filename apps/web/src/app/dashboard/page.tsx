@@ -13,7 +13,7 @@ import {
   Briefcase,
 } from "lucide-react";
 import Link from "next/link";
-import type { Licitacion, Categoria, TypeKey } from "@/lib/types";
+import type { LicitacionPreview, Categoria } from "@/lib/types";
 
 const categoriaIcons: Record<Categoria, React.ReactNode> = {
   MEDICAMENTO: <Pill size={24} />,
@@ -30,70 +30,91 @@ const categoriaLabels: Record<Categoria, string> = {
 };
 
 const estadoColors: Record<string, { label: string; color: string }> = {
-  Publicado: { label: "Publicado", color: "bg-[#84a584]" },
+  Publicado:  { label: "Publicado",  color: "bg-[#84a584]" },
   Adjudicado: { label: "Adjudicado", color: "bg-[#898a7d]" },
-  Desierto: { label: "Desierto", color: "bg-[#5d6a85]" },
-  Cancelado: { label: "Cancelado", color: "bg-[#a58484]" },
+  Desierto:   { label: "Desierto",   color: "bg-[#5d6a85]" },
+  Cancelado:  { label: "Cancelado",  color: "bg-[#a58484]" },
 };
 
 async function getDashboardData() {
   const supabase = await createClient();
 
-  // Get total count
+  // Total médicas clasificadas (es_medica=true AND categoria NOT NULL)
+  // Fix: excluye las 44 médicas sin categoría para consistencia con las cards
   const { count: totalCount } = await supabase
-    .from("licitaciones_activas")
-    .select("*", { count: "exact", head: true });
+    .from("licitaciones_medicas")
+    .select("*", { count: "exact", head: true })
+    .eq("es_medica", true)
+    .not("categoria", "is", null);
 
-  // Get recent licitaciones
+  // Recientes — médicas clasificadas, orden descendente
   const { data: recentLicitaciones } = await supabase
-    .from("licitaciones_activas")
-    .select("*")
+    .from("licitaciones_medicas")
+    .select(
+      "id, numero_procedimiento, descripcion, institucion, categoria, monto_colones, fecha_tramite, estado, es_medica, raw_data"
+    )
+    .eq("es_medica", true)
+    .not("categoria", "is", null)
     .order("created_at", { ascending: false })
     .limit(5);
 
-  // Get all licitaciones for aggregation (we'll group in JS since Supabase doesn't support .group())
-  const { data: allLicitaciones } = await supabase
-    .from("licitaciones_activas")
-    .select("categoria, estado, monto_colones");
+  // resumen_por_categoria — vista ya filtrada por es_medica=true AND categoria IS NOT NULL
+  // (después de aplicar Fix 3 en SQL — CREATE OR REPLACE VIEW)
+  // Si la vista todavía incluye categoria=null, el .filter() en byCategoria lo descarta
+  const { data: resumenCategoria } = await supabase
+    .from("resumen_por_categoria")
+    .select("categoria, total, publicadas, adjudicadas, monto_crc, monto_usd");
 
-  // Group by categoria
-  const categoriaCounts = (allLicitaciones || []).reduce((acc, item) => {
-    if (item.categoria) {
-      acc[item.categoria] = (acc[item.categoria] || 0) + 1;
-    }
-    return acc;
-  }, {} as Record<string, number>);
+  // currency_type desde columna DB — no desde raw_data (Gap 3)
+  const { data: adjudicadasData } = await supabase
+    .from("licitaciones_medicas")
+    .select("monto_colones, currency_type")
+    .eq("es_medica", true)
+    .eq("estado", "Adjudicado")
+    .not("monto_colones", "is", null);
 
-  const byCategoria = Object.entries(categoriaCounts).map(([categoria, count]) => ({
-    categoria,
-    count,
-  }));
+  const montoCRC = (adjudicadasData ?? [])
+    .filter(r => r.currency_type === "CRC" || r.currency_type === "₡" || !r.currency_type)
+    .reduce((sum, r) => sum + (r.monto_colones ?? 0), 0);
 
-  // Group by estado
-  const estadoCounts = (allLicitaciones || []).reduce((acc, item) => {
-    if (item.estado) {
-      acc[item.estado] = (acc[item.estado] || 0) + 1;
-    }
-    return acc;
-  }, {} as Record<string, number>);
+  const montoUSD = (adjudicadasData ?? [])
+    .filter(r => r.currency_type === "USD" || r.currency_type === "$")
+    .reduce((sum, r) => sum + (r.monto_colones ?? 0), 0);
 
-  const byEstado = Object.entries(estadoCounts).map(([estado, count]) => ({
-    estado,
-    count,
-  }));
+  // Excluir fila categoria=null de la vista (mientras no se aplique Fix 3 SQL)
+  const byCategoria = (resumenCategoria ?? [])
+    .filter(r => r.categoria !== null)
+    .map(r => ({
+      categoria:   r.categoria! as Categoria,
+      total:       r.total       ?? 0,
+      publicadas:  r.publicadas  ?? 0,
+      adjudicadas: r.adjudicadas ?? 0,
+      monto_crc:   Number(r.monto_crc  ?? 0),
+      monto_usd:   Number(r.monto_usd  ?? 0),
+    }));
 
-  // Calculate monto total
-  const montoTotal = (allLicitaciones || []).reduce(
-    (sum, item) => sum + (item.monto_colones || 0),
-    0
+  // byEstado solo desde rows con categoria — excluye la fila null de la vista
+  const byEstado = byCategoria.reduce(
+    (acc, r) => {
+      acc["Publicado"]  = (acc["Publicado"]  ?? 0) + r.publicadas;
+      acc["Adjudicado"] = (acc["Adjudicado"] ?? 0) + r.adjudicadas;
+      return acc;
+    },
+    {} as Record<string, number>
   );
 
+  // Totales de monto desde la vista (más eficiente que el query separado)
+  const montoCRCVista = byCategoria.reduce((sum, r) => sum + r.monto_crc, 0);
+  const montoUSDVista = byCategoria.reduce((sum, r) => sum + r.monto_usd, 0);
+
   return {
-    totalLicitaciones: totalCount || 0,
-    recentLicitaciones: recentLicitaciones || [],
-    porCategoria: byCategoria,
-    porEstado: byEstado,
-    montoTotal,
+    totalLicitaciones:  totalCount ?? 0,
+    recentLicitaciones: (recentLicitaciones ?? []) as LicitacionPreview[],
+    porCategoria:       byCategoria,
+    porEstado:          Object.entries(byEstado).map(([estado, count]) => ({ estado, count })),
+    // Preferir datos de la vista (agrupados) sobre el query separado de adjudicadas
+    montoCRC: montoCRCVista || montoCRC,
+    montoUSD: montoUSDVista || montoUSD,
   };
 }
 
@@ -117,13 +138,17 @@ export default async function DashboardPage() {
         <StatCard
           title="Total Licitaciones"
           value={data.totalLicitaciones.toLocaleString()}
-          description="En la base de datos"
+          description="Médicas clasificadas"
           icon={<FileText size={24} />}
         />
         <StatCard
-          title="Monto Total"
-          value={`$${(data.montoTotal / 1000000).toFixed(1)}M`}
-          description="En licitaciones médicas"
+          title="Monto Adjudicado"
+          value={`₡${(data.montoCRC / 1_000_000).toFixed(1)}M`}
+          description={
+            data.montoUSD > 0
+              ? `+ $${(data.montoUSD / 1_000).toFixed(0)}K USD`
+              : "Solo licitaciones adjudicadas"
+          }
           icon={<DollarSign size={24} />}
           variant="sage"
         />
@@ -141,31 +166,29 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Categorias */}
+      {/* Categorías */}
       <div className="mb-8">
         <h2 className="mb-4 text-xl font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
           Por Categoría
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {data.porCategoria.map((item) => {
-            const categoria = item.categoria as Categoria;
-            return (
-              <div
-                key={categoria}
-                className="flex items-center gap-4 rounded-[24px] bg-[#2c3833] p-4"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-[#1a1f1a] text-[#f9f5df]">
-                  {categoriaIcons[categoria]}
-                </div>
-                <div>
-                  <p className="text-sm text-[#e4e4e4]">{categoriaLabels[categoria]}</p>
-                  <p className="text-2xl font-semibold text-[#f9f5df]">
-                    {item.count}
-                  </p>
-                </div>
+          {data.porCategoria.map((item) => (
+            <div
+              key={item.categoria}
+              className="flex items-center gap-4 rounded-[24px] bg-[#2c3833] p-4"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-[#1a1f1a] text-[#f9f5df]">
+                {categoriaIcons[item.categoria]}
               </div>
-            );
-          })}
+              <div>
+                <p className="text-sm text-[#e4e4e4]">{categoriaLabels[item.categoria]}</p>
+                <p className="text-2xl font-semibold text-[#f9f5df]">{item.total}</p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                  {item.publicadas} pub · {item.adjudicadas} adj
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -176,7 +199,7 @@ export default async function DashboardPage() {
         </h2>
         <div className="flex flex-wrap gap-3">
           {data.porEstado.map((item) => {
-            const config = estadoColors[item.estado] || { label: item.estado, color: "bg-[#666]" };
+            const config = estadoColors[item.estado] ?? { label: item.estado, color: "bg-[#666]" };
             return (
               <div
                 key={item.estado}
@@ -205,7 +228,7 @@ export default async function DashboardPage() {
           </Link>
         </div>
         <LicitacionesTable
-          data={data.recentLicitaciones as Licitacion[]}
+          data={data.recentLicitaciones}
           showPagination={false}
           pageSize={5}
         />
