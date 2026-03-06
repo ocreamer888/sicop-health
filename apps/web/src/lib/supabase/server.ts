@@ -35,13 +35,13 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+              console.log("[Supabase] Cookie set:", name);
+            });
+          } catch (error) {
+            // Log error but don't throw - cookies might still work
+            console.error("[Supabase] Error setting cookies:", error instanceof Error ? error.message : String(error));
           }
         },
       },

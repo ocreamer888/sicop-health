@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  // Simple auth check - look for auth cookie presence
-  // Full auth verification happens in server components
-  const hasAuthCookie = request.cookies.has('sb-access-token') ||
-                        request.cookies.has('sb-refresh-token');
+  // Check for Supabase auth cookie
+  // Supabase SSR uses format: sb-<project-ref>-auth-token
+  const allCookies = request.cookies.getAll();
+  const hasAuthCookie = allCookies.some(
+    (cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token')
+  );
 
   const isAuthPage = request.nextUrl.pathname.startsWith("/auth");
   const isPublicPage = request.nextUrl.pathname === "/";
