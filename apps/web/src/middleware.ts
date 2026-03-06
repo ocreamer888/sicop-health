@@ -1,46 +1,33 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  // Simple auth check - look for auth cookie presence
+  // Full auth verification happens in server components
+  const hasAuthCookie = request.cookies.has('sb-access-token') ||
+                        request.cookies.has('sb-refresh-token');
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
+  const isAuthPage = request.nextUrl.pathname.startsWith("/auth");
+  const isPublicPage = request.nextUrl.pathname === "/";
 
-  // Refresh session — required for @supabase/ssr
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user && !request.nextUrl.pathname.startsWith("/auth")) {
+  // Redirect to login if no auth cookie and trying to access protected page
+  if (!hasAuthCookie && !isAuthPage && !isPublicPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
     return NextResponse.redirect(url);
   }
 
-  return supabaseResponse;
+  // Redirect to dashboard if has auth cookie and accessing login
+  if (hasAuthCookie && request.nextUrl.pathname === "/auth/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next({ request });
 }
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
