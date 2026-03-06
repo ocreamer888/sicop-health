@@ -1,3 +1,4 @@
+// apps/web/app/dashboard/page.tsx
 import { createClient } from "@/lib/supabase/server";
 import { StatCard } from "@/components/ui/stat-card";
 import { LicitacionesTable } from "@/components/licitaciones-table";
@@ -39,61 +40,52 @@ const estadoColors: Record<string, { label: string; color: string }> = {
 async function getDashboardData() {
   const supabase = await createClient();
 
-  // Total médicas clasificadas (es_medica=true AND categoria NOT NULL)
-  // Fix: excluye las 44 médicas sin categoría para consistencia con las cards
+  // Total médicas clasificadas
   const { count: totalCount } = await supabase
     .from("licitaciones_medicas")
     .select("*", { count: "exact", head: true })
     .eq("es_medica", true)
     .not("categoria", "is", null);
 
-  // Recientes — médicas clasificadas, orden descendente
+  // Nuevas esta semana — query real
+  const { count: nuevasCount } = await supabase
+    .from("licitaciones_medicas")
+    .select("*", { count: "exact", head: true })
+    .eq("es_medica", true)
+    .gte(
+      "created_at",
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    );
+
+  // v2: instcartelno + cartelnm + instnm + tipo_procedimiento + biddoc_end_dt
   const { data: recentLicitaciones } = await supabase
     .from("licitaciones_medicas")
     .select(
-      "id, numero_procedimiento, descripcion, institucion, categoria, monto_colones, fecha_tramite, estado, es_medica, raw_data"
+      "id, instcartelno, cartelnm, instnm, categoria, tipo_procedimiento, monto_colones, currency_type, biddoc_start_dt, biddoc_end_dt, estado, es_medica"
     )
     .eq("es_medica", true)
     .not("categoria", "is", null)
     .order("created_at", { ascending: false })
     .limit(5);
 
-  // resumen_por_categoria — vista ya filtrada por es_medica=true AND categoria IS NOT NULL
-  // (después de aplicar Fix 3 en SQL — CREATE OR REPLACE VIEW)
-  // Si la vista todavía incluye categoria=null, el .filter() en byCategoria lo descarta
+  // resumen_por_categoria — vista filtrada por es_medica=true AND categoria IS NOT NULL
   const { data: resumenCategoria } = await supabase
     .from("resumen_por_categoria")
     .select("categoria, total, publicadas, adjudicadas, monto_crc, monto_usd");
 
-  // currency_type desde columna DB — no desde raw_data (Gap 3)
-  const { data: adjudicadasData } = await supabase
-    .from("licitaciones_medicas")
-    .select("monto_colones, currency_type")
-    .eq("es_medica", true)
-    .eq("estado", "Adjudicado")
-    .not("monto_colones", "is", null);
-
-  const montoCRC = (adjudicadasData ?? [])
-    .filter(r => r.currency_type === "CRC" || r.currency_type === "₡" || !r.currency_type)
-    .reduce((sum, r) => sum + (r.monto_colones ?? 0), 0);
-
-  const montoUSD = (adjudicadasData ?? [])
-    .filter(r => r.currency_type === "USD" || r.currency_type === "$")
-    .reduce((sum, r) => sum + (r.monto_colones ?? 0), 0);
-
-  // Excluir fila categoria=null de la vista (mientras no se aplique Fix 3 SQL)
+  // Excluir fila categoria=null + castear números (la vista retorna strings)
   const byCategoria = (resumenCategoria ?? [])
-    .filter(r => r.categoria !== null)
-    .map(r => ({
+    .filter((r) => r.categoria !== null)
+    .map((r) => ({
       categoria:   r.categoria! as Categoria,
-      total:       r.total       ?? 0,
-      publicadas:  r.publicadas  ?? 0,
-      adjudicadas: r.adjudicadas ?? 0,
+      total:       r.total        ?? 0,
+      publicadas:  r.publicadas   ?? 0,
+      adjudicadas: r.adjudicadas  ?? 0,
       monto_crc:   Number(r.monto_crc  ?? 0),
       monto_usd:   Number(r.monto_usd  ?? 0),
     }));
 
-  // byEstado solo desde rows con categoria — excluye la fila null de la vista
+  // byEstado acumulado desde byCategoria (sin query extra)
   const byEstado = byCategoria.reduce(
     (acc, r) => {
       acc["Publicado"]  = (acc["Publicado"]  ?? 0) + r.publicadas;
@@ -103,18 +95,18 @@ async function getDashboardData() {
     {} as Record<string, number>
   );
 
-  // Totales de monto desde la vista (más eficiente que el query separado)
-  const montoCRCVista = byCategoria.reduce((sum, r) => sum + r.monto_crc, 0);
-  const montoUSDVista = byCategoria.reduce((sum, r) => sum + r.monto_usd, 0);
+  // Totales de monto desde la vista (sin query separado)
+  const montoCRC = byCategoria.reduce((sum, r) => sum + r.monto_crc, 0);
+  const montoUSD = byCategoria.reduce((sum, r) => sum + r.monto_usd, 0);
 
   return {
-    totalLicitaciones:  totalCount ?? 0,
+    totalLicitaciones:  totalCount  ?? 0,
+    nuevasEstaSemana:   nuevasCount ?? 0,
     recentLicitaciones: (recentLicitaciones ?? []) as LicitacionPreview[],
     porCategoria:       byCategoria,
     porEstado:          Object.entries(byEstado).map(([estado, count]) => ({ estado, count })),
-    // Preferir datos de la vista (agrupados) sobre el query separado de adjudicadas
-    montoCRC: montoCRCVista || montoCRC,
-    montoUSD: montoUSDVista || montoUSD,
+    montoCRC,
+    montoUSD,
   };
 }
 
@@ -154,8 +146,7 @@ export default async function DashboardPage() {
         />
         <StatCard
           title="Nuevas esta semana"
-          value="+12"
-          trend={{ value: 8, isPositive: true }}
+          value={`+${data.nuevasEstaSemana}`}
           icon={<TrendingUp size={24} />}
         />
         <StatCard
@@ -214,7 +205,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Licitaciones */}
+      {/* Licitaciones Recientes */}
       <div className="mb-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">

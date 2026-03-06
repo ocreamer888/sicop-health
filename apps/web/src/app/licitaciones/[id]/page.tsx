@@ -1,3 +1,4 @@
+// apps/web/app/licitaciones/[id]/page.tsx
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -6,24 +7,12 @@ import {
   ArrowLeft, Calendar, DollarSign, Building2,
   FileText, AlertCircle,
 } from "lucide-react";
+import { TIPO_LABELS } from "@/lib/types";
 import type { Licitacion, Categoria } from "@/lib/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
-
-// Issue G — labels legibles para códigos de tipo de proceso
-const TIPO_LABELS: Record<string, string> = {
-  LD: "Licitación Directa",
-  LY: "Licitación Abreviada",
-  LE: "Licitación por Registro",
-  LG: "Licitación de Mayor Cuantía",
-  LP: "Licitación Pública",
-  PX: "Procedimiento Excepcional",
-  PE: "Procedimiento Especial",
-  XE: "Contratación Directa",
-  CD: "Contratación Directa",
-};
 
 const categoriaLabels: Record<Categoria, string> = {
   MEDICAMENTO: "Medicamento",
@@ -50,9 +39,9 @@ function formatDate(dateStr: string | null): string {
 async function getLicitacion(id: string): Promise<Licitacion | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("licitaciones_activas")
+    .from("licitaciones_medicas")
     .select("*")
-    .eq("id", id)
+    .eq("instcartelno", id)
     .single();
   if (error || !data) return null;
   return data as Licitacion;
@@ -67,7 +56,6 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
   const isPublicado  = licitacion.estado === "Publicado";
   const isAdjudicado = licitacion.estado === "Adjudicado";
 
-  // Issue G — label legible, fallback al código raw si no está en el mapa
   const tipoLabel =
     TIPO_LABELS[licitacion.tipo_procedimiento ?? ""] ??
     licitacion.tipo_procedimiento ??
@@ -99,7 +87,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
       <div className="mb-8 overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <span className="font-mono text-sm text-[#84a584]">
-            {licitacion.numero_procedimiento}
+            {licitacion.instcartelno}
           </span>
           {licitacion.categoria && (
             <Badge variant="sage">{categoriaLabels[licitacion.categoria]}</Badge>
@@ -107,7 +95,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
           <Badge variant="secondary">{licitacion.estado || "N/A"}</Badge>
         </div>
         <h1 className="text-3xl font-semibold text-[#f9f5df] overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--font-montserrat)]">
-          {licitacion.descripcion || "Sin título"}
+          {licitacion.cartelnm || "Sin título"}
         </h1>
       </div>
 
@@ -123,11 +111,9 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
 
-              {/* Issue G — label legible */}
               <div className="rounded-[16px] bg-[#2c3833] p-4">
                 <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Tipo de Proceso</p>
                 <p className="mt-1 text-[#f2f5f9]">{tipoLabel}</p>
-                {/* Mostrar código raw como referencia si existe un label mapeado */}
                 {TIPO_LABELS[licitacion.tipo_procedimiento ?? ""] && licitacion.tipo_procedimiento && (
                   <p className="mt-0.5 font-mono text-xs text-[var(--color-text-muted)]">
                     {licitacion.tipo_procedimiento}
@@ -137,9 +123,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
               <div className="rounded-[16px] bg-[#2c3833] p-4">
                 <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">UNSPSC</p>
-                <p className="mt-1 text-[#f2f5f9]">
-                  {licitacion.unspsc_cd || licitacion.clasificacion_unspsc || "N/A"}
-                </p>
+                <p className="mt-1 text-[#f2f5f9]">{licitacion.unspsc_cd || "N/A"}</p>
               </div>
 
               <div className="rounded-[16px] bg-[#2c3833] p-4">
@@ -147,15 +131,14 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                 <p className="mt-1 text-[#f2f5f9]">{licitacion.modalidad || "N/A"}</p>
               </div>
 
-              {/* Adjudicatario — placeholder contextual si está publicado */}
               <div className="rounded-[16px] bg-[#2c3833] p-4">
-                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Adjudicatario</p>
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</p>
                 <p className="mt-1 text-[#f2f5f9]">
                   {isAdjudicado
-                    ? (licitacion.adjudicatario || "N/A")
+                    ? (licitacion.supplier_nm || "N/A")
                     : isPublicado
                     ? <span className="italic text-[var(--color-text-muted)]">Pendiente de adjudicación</span>
-                    : (licitacion.adjudicatario || "N/A")
+                    : (licitacion.supplier_nm || "N/A")
                   }
                 </p>
               </div>
@@ -173,6 +156,20 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                   <p className="mt-1 text-[#f2f5f9]">
                     {licitacion.vigencia_contrato} {licitacion.unidad_vigencia}
                   </p>
+                </div>
+              )}
+
+              {licitacion.detalle && (
+                <div className="rounded-[16px] bg-[#2c3833] p-4 sm:col-span-2">
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Detalle</p>
+                  <p className="mt-1 text-[#f2f5f9] text-sm leading-relaxed">{licitacion.detalle}</p>
+                </div>
+              )}
+
+              {licitacion.mod_reason && (
+                <div className="rounded-[16px] bg-[#2c3833] p-4 sm:col-span-2">
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Motivo Modificación</p>
+                  <p className="mt-1 text-[#f2f5f9] text-sm leading-relaxed">{licitacion.mod_reason}</p>
                 </div>
               )}
             </div>
@@ -198,10 +195,13 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
               <Building2 size={24} />
               <h2 className="text-lg font-semibold font-[family-name:var(--font-montserrat)]">Entidad</h2>
             </div>
-            <p className="text-xl font-medium">{licitacion.institucion || "N/A"}</p>
+            <p className="text-xl font-medium">{licitacion.instnm || "N/A"}</p>
+            {licitacion.inst_code && (
+              <p className="mt-1 font-mono text-xs opacity-60">{licitacion.inst_code}</p>
+            )}
           </div>
 
-          {/* Amount — placeholder dashed si publicado y sin monto */}
+          {/* Amount */}
           {licitacion.monto_colones ? (
             <div className="rounded-[24px] bg-[#2c3833] p-6">
               <div className="flex items-center gap-3 mb-4">
@@ -232,12 +232,12 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             </div>
             <div className="space-y-3">
               <div>
-                <p className="text-xs text-[var(--color-text-muted)]">Fecha Trámite</p>
-                <p className="text-[#f2f5f9]">{formatDate(licitacion.fecha_tramite)}</p>
+                <p className="text-xs text-[var(--color-text-muted)]">Publicación</p>
+                <p className="text-[#f2f5f9]">{formatDate(licitacion.biddoc_start_dt)}</p>
               </div>
               <div>
-                <p className="text-xs text-[var(--color-text-muted)]">Límite Ofertas</p>
-                <p className="text-[#f2f5f9]">{formatDate(licitacion.fecha_limite_oferta)}</p>
+                <p className="text-xs text-[var(--color-text-muted)]">Apertura Ofertas</p>
+                <p className="text-[#f2f5f9]">{formatDate(licitacion.openbid_dt)}</p>
               </div>
               {licitacion.biddoc_end_dt && (
                 <div>
@@ -275,6 +275,12 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                   {licitacion.categoria ? "Sí" : "No"}
                 </Badge>
               </div>
+              {licitacion.cartel_cate && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[var(--color-text-muted)]">Cat. Cartel</span>
+                  <span className="text-xs text-[#e4e4e4]">{licitacion.cartel_cate}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

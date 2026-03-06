@@ -14,17 +14,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "./ui/badge";
-import type { Licitacion, Categoria, TypeKey } from "@/lib/types";
-
-// Allow partial Licitacion for dashboard preview (subset of fields)
-type LicitacionLike = Pick<
-  Licitacion,
-  'id' | 'numero_procedimiento' | 'descripcion' | 'institucion' | 
-  'categoria' | 'monto_colones' | 'fecha_tramite' | 'estado' | 'es_medica'
-> & Partial<Pick<Licitacion, 'type_key' | 'raw_data'>>
+import { TIPO_LABELS } from "@/lib/types";
+import type { LicitacionPreview, Categoria } from "@/lib/types";
 
 interface LicitacionesTableProps {
-  data: LicitacionLike[];
+  data: LicitacionPreview[];
   showPagination?: boolean;
   pageSize?: number;
 }
@@ -36,12 +30,6 @@ const categoriaLabels: Record<Categoria, string> = {
   SERVICIO: "Servicio",
 };
 
-const fuenteLabels: Record<TypeKey, string> = {
-  RPT_PUB: "Periódico Oficial",
-  RPT_ADJ: "Adjudicación",
-  RPT_MOD: "Modificación",
-};
-
 const categoriaVariants: Record<Categoria, "default" | "secondary" | "sage" | "olive"> = {
   MEDICAMENTO: "sage",
   EQUIPAMIENTO: "secondary",
@@ -49,9 +37,12 @@ const categoriaVariants: Record<Categoria, "default" | "secondary" | "sage" | "o
   SERVICIO: "default",
 };
 
-function formatCurrency(amount: number | null): string {
+function formatCurrency(amount: number | null, currency?: string | null): string {
   if (amount === null || amount === undefined) return "N/A";
-  return `₡${amount.toLocaleString()}`;
+  if (currency === "USD" || currency === "$") {
+    return `$${amount.toLocaleString("en-US")}`;
+  }
+  return `₡${amount.toLocaleString("es-CR")}`;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -71,38 +62,51 @@ export function LicitacionesTable({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
 
-  const columns: ColumnDef<LicitacionLike>[] = [
+  const columns: ColumnDef<LicitacionPreview>[] = [
     {
-      accessorKey: "numero_procedimiento",
+      accessorKey: "instcartelno",
       header: "ID",
       cell: ({ row }) => (
         <Link
-          href={`/licitaciones/${row.original.id}`}
+          href={`/licitaciones/${row.original.instcartelno}`}
           className="font-mono text-sm text-[#84a584] hover:underline"
         >
-          {row.getValue("numero_procedimiento")}
+          {row.getValue("instcartelno")}
         </Link>
       ),
     },
     {
-      accessorKey: "descripcion",
+      accessorKey: "cartelnm",
       header: "Título",
       cell: ({ row }) => (
         <div className="max-w-md">
           <p className="font-medium text-[#f2f5f9] line-clamp-2">
-            {row.getValue("descripcion") || "Sin título"}
+            {row.getValue("cartelnm") || "Sin título"}
           </p>
         </div>
       ),
     },
     {
-      accessorKey: "institucion",
+      accessorKey: "instnm",
       header: "Entidad",
       cell: ({ row }) => (
         <span className="text-sm text-[#e4e4e4]">
-          {row.getValue("institucion") || "N/A"}
+          {row.getValue("instnm") || "N/A"}
         </span>
       ),
+    },
+    {
+      accessorKey: "tipo_procedimiento",
+      header: "Tipo",
+      cell: ({ row }) => {
+        const tipo = row.getValue("tipo_procedimiento") as string | null;
+        if (!tipo) return <span className="text-[var(--color-text-muted)]">-</span>;
+        return (
+          <span className="text-xs text-[#e4e4e4]" title={TIPO_LABELS[tipo] ?? tipo}>
+            {tipo}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "categoria",
@@ -120,21 +124,21 @@ export function LicitacionesTable({
     {
       accessorKey: "monto_colones",
       header: "Monto",
-      cell: ({ row }) => {
-        const amount = row.getValue("monto_colones") as number | null;
-        return (
-          <span className="font-mono text-sm text-[#f9f5df]">
-            {formatCurrency(amount)}
-          </span>
-        );
-      },
+      cell: ({ row }) => (
+        <span className="font-mono text-sm text-[#f9f5df]">
+          {formatCurrency(
+            row.getValue("monto_colones"),
+            row.original.currency_type
+          )}
+        </span>
+      ),
     },
     {
-      accessorKey: "fecha_tramite",
-      header: "Fecha Trámite",
+      accessorKey: "biddoc_start_dt",
+      header: "Publicado",
       cell: ({ row }) => (
         <span className="text-sm text-[#e4e4e4]">
-          {formatDate(row.getValue("fecha_tramite"))}
+          {formatDate(row.getValue("biddoc_start_dt"))}
         </span>
       ),
     },
@@ -152,21 +156,14 @@ export function LicitacionesTable({
   const table = useReactTable({
     data,
     columns,
-    state: {
-      sorting,
-      globalFilter,
-    },
+    state: { sorting, globalFilter },
     onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    initialState: {
-      pagination: {
-        pageSize,
-      },
-    },
+    initialState: { pagination: { pageSize } },
   });
 
   return (
@@ -201,25 +198,17 @@ export function LicitacionesTable({
                         onClick={header.column.getToggleSortingHandler()}
                         className="flex items-center gap-1 hover:text-[#f2f5f9]"
                       >
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                        {header.column.getIsSorted() ? (
-                          header.column.getIsSorted() === "asc" ? (
-                            <ArrowUp size={14} />
-                          ) : (
-                            <ArrowDown size={14} />
-                          )
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getIsSorted() === "asc" ? (
+                          <ArrowUp size={14} />
+                        ) : header.column.getIsSorted() === "desc" ? (
+                          <ArrowDown size={14} />
                         ) : (
                           <ArrowUpDown size={14} />
                         )}
                       </button>
                     ) : (
-                      flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )
+                      flexRender(header.column.columnDef.header, header.getContext())
                     )}
                   </th>
                 ))}

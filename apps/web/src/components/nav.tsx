@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Table2, Activity } from "lucide-react";
+import { Home, Table2, Activity, LogOut } from "lucide-react";
+import { signOut } from "@/app/auth/actions";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -11,6 +12,7 @@ const navItems = [
 
 export function Nav() {
   const pathname = usePathname();
+  if (pathname.startsWith("/auth")) return null;
 
   return (
     <nav className="relative top-0 z-50 w-full px-6 py-4">
@@ -52,13 +54,24 @@ export function Nav() {
           })}
         </div>
 
-        {/* CTA Button - Figma style */}
-        <button className="flex items-center gap-2 rounded-[37px] border border-[#898a7d] bg-[#1a1f1a] px-6 py-3 text-sm text-white transition-colors hover:bg-[#2c3833]">
-          <Activity size={18} />
-          <span className="font-[family-name:var(--font-plus-jakarta)]">
-            Live Data
-          </span>
-        </button>
+        {/* Right actions */}
+        <div className="flex items-center gap-2">
+          <button className="flex items-center gap-2 rounded-[37px] border border-[#898a7d] bg-[#1a1f1a] px-6 py-3 text-sm text-white transition-colors hover:bg-[#2c3833]">
+            <Activity size={18} />
+            <span className="font-[family-name:var(--font-plus-jakarta)]">
+              Live Data
+            </span>
+          </button>
+          <form action={signOut}>
+            <button
+              type="submit"
+              className="flex items-center gap-2 rounded-[37px] border border-[#898a7d]/40 bg-transparent px-4 py-3 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[#2c3833] hover:text-[#f2f5f9]"
+              title="Cerrar sesión"
+            >
+              <LogOut size={18} />
+            </button>
+          </form>
+        </div>
       </div>
     </nav>
   );

@@ -16,7 +16,6 @@ export type Estado =
 
 export type TypeKey = "RPT_PUB" | "RPT_ADJ" | "RPT_MOD"
 
-// Issue G — códigos de tipo de procedimiento extraídos de instCartelNo
 export type TipoProcedimiento =
   | "LD" // Licitación Directa
   | "LY" // Licitación Abreviada
@@ -29,95 +28,114 @@ export type TipoProcedimiento =
   | "CD" // Contratación Directa (alias)
   | (string & {})
 
+// Labels para display — espejo de TIPO_PROCEDIMIENTO_LABELS en parser.py
+export const TIPO_LABELS: Record<string, string> = {
+  LD: "Licitación Directa",
+  LY: "Licitación Abreviada",
+  LE: "Licitación por Registro",
+  LG: "Licitación Mayor Cuantía",
+  LP: "Licitación Pública",
+  PX: "Procedimiento Excepcional",
+  PE: "Procedimiento Especial",
+  XE: "Contratación Directa",
+  CD: "Contratación Directa",
+}
+
+// ─────────────────────────────────────────────
+// LICITACION — schema v2.9 (alineado a DB post-migration 003)
+// Columnas removidas: numero_procedimiento, descripcion, institucion,
+//   adjudicatario, clasificacion_unspsc, fecha_tramite, fecha_limite_oferta
+// ─────────────────────────────────────────────
+
 export interface Licitacion {
   id: string
 
-  // Core
-  numero_procedimiento: string
-  descripcion: string | null
-  institucion: string | null
+  // — Identidad v2 —
+  instcartelno: string           // PK lógica — UNIQUE NOT NULL en DB
+  cartelno: string | null
+
+  // — Descripción —
+  cartelnm: string | null        // título de la licitación (era "descripcion")
+  instnm: string | null          // nombre institución (era "institucion")
+  inst_code: string | null
+
+  // — Estado —
   estado: Estado | null
+  es_medica: boolean
   categoria: Categoria | null
 
-  // Procedimiento
-  tipo_procedimiento: TipoProcedimiento | null  // Issue G: tipado fuerte
+  // — Procedimiento —
+  procetype: string | null       // label largo del API ("LICITACIÓN MENOR")
+  tipo_procedimiento: TipoProcedimiento | null  // código corto extraído ("LD", "XE"…)
+  typekey: TypeKey | null        // RPT_PUB | RPT_ADJ | RPT_MOD
   modalidad: string | null
   excepcion_cd: string | null
   cartel_cate: string | null
+  mod_reason: string | null
 
-  // UNSPSC
-  unspsc_cd: string | null
-  clasificacion_unspsc: string | null
+  // — Clasificación —
+  unspsc_cd: string | null       // 8 dígitos familia UNSPSC (era "clasificacion_unspsc")
 
-  // Proveedor
-  adjudicatario: string | null
-  supplier_nm: string | null  // Issue D: campo real en DB
+  // — Proveedor —
+  supplier_nm: string | null     // (era "adjudicatario")
   supplier_cd: string | null
 
-  // Montos
+  // — Montos —
   monto_colones: number | null
-  currency_type: string | null  // Issue D: siempre presente, no optional
+  currency_type: string | null
+  detalle: string | null
 
-  // Fechas
-  fecha_tramite: string | null
-  fecha_limite_oferta: string | null
-  biddoc_start_dt: string | null  // Issue D: campo en DB que faltaba
-  biddoc_end_dt: string | null
-  openbid_dt: string | null       // Issue D: campo en DB que faltaba
+  // — Fechas —
+  biddoc_start_dt: string | null  // fecha publicación (era "fecha_tramite")
+  biddoc_end_dt: string | null    // deadline ofertas (era "fecha_limite_oferta")
+  openbid_dt: string | null
   adj_firme_dt: string | null
 
-  // Contrato
+  // — Contrato —
   vigencia_contrato: string | null
   unidad_vigencia: string | null
 
-  // Flags
-  es_medica: boolean
-  type_key: TypeKey | null  // Issue D: removido optional — siempre existe en DB
-
-  // Raw / meta
-  instcartelno: string | null     // Issue D: campo clave del ETL
-  cartelno: string | null
-  inst_code: string | null
-  instnm: string | null
-  cartelnm: string | null
-  procetype: string | null
-  typekey: TypeKey | null
-  detalle: string | null
-  mod_reason: string | null
+  // — Meta —
   raw_data: Record<string, unknown>
   created_at: string
   updated_at: string
 }
 
-// Issue D fix — columnas reales de la view migration 004
+// ─────────────────────────────────────────────
+// DASHBOARD STATS — columnas de resumen_por_categoria
+// ─────────────────────────────────────────────
+
 export interface DashboardStats {
   totalLicitaciones: number
   porCategoria: {
-    categoria: string
+    categoria: Categoria
     total: number
-    publicadas: number    // ← migration 004 (era "publicados")
-    adjudicadas: number   // ← migration 004 (era "adjudicados")
-    monto_crc: number | null  // ← migration 004 (era "monto_total")
-    monto_usd: number | null  // ← migration 004 (nuevo campo)
+    publicadas: number
+    adjudicadas: number
+    monto_crc: number | null
+    monto_usd: number | null
   }[]
   porEstado: { estado: string; count: number }[]
   montoCRC: number
   montoUSD: number
 }
 
-// Subset para listas — incluye currency_type para formatCurrency
+// ─────────────────────────────────────────────
+// LICITACION PREVIEW — subset para listas y tabla
+// ─────────────────────────────────────────────
+
 export type LicitacionPreview = Pick<
   Licitacion,
   | "id"
-  | "numero_procedimiento"
-  | "descripcion"
-  | "institucion"
+  | "instcartelno"       // era numero_procedimiento
+  | "cartelnm"           // era descripcion
+  | "instnm"             // era institucion
   | "categoria"
-  | "tipo_procedimiento"   // Issue G: necesario para TIPO_LABELS en list view
+  | "tipo_procedimiento" // para TIPO_LABELS en list view
   | "monto_colones"
-  | "currency_type"        // necesario para formatCurrency
-  | "fecha_tramite"
+  | "currency_type"      // para formatCurrency
+  | "biddoc_start_dt"    // era fecha_tramite
+  | "biddoc_end_dt"      // deadline — útil para badges de vencimiento
   | "estado"
   | "es_medica"
-  | "raw_data"
 >

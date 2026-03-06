@@ -1,0 +1,84 @@
+import { signIn } from "../actions";
+
+interface PageProps {
+  searchParams: Promise<{ error?: string }>;
+}
+
+export default async function LoginPage({ searchParams }: PageProps) {
+  const { error } = await searchParams;
+
+  return (
+    <div className="w-full max-w-sm">
+      {/* Logo */}
+      <div className="mb-8 text-center">
+        <span className="text-3xl font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
+          SICOP
+        </span>
+        <span className="ml-2 text-base text-[#84a584] font-[family-name:var(--font-raleway)]">
+          Health Intelligence
+        </span>
+        <p className="mt-3 text-sm text-[var(--color-text-muted)] font-[family-name:var(--font-plus-jakarta)]">
+          Inicia sesión en tu cuenta
+        </p>
+      </div>
+
+      {/* Card */}
+      <div className="rounded-[24px] bg-[#1a1f1a] p-8">
+        <form action={signIn} className="space-y-5">
+          <div className="space-y-2">
+            <label
+              htmlFor="email"
+              className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]"
+            >
+              Correo electrónico
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder="tu@empresa.com"
+              className="w-full rounded-[16px] bg-[#2c3833] px-4 py-3 text-sm text-[#f2f5f9] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[#84a584]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="password"
+              className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]"
+            >
+              Contraseña
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              required
+              autoComplete="current-password"
+              placeholder="••••••••"
+              className="w-full rounded-[16px] bg-[#2c3833] px-4 py-3 text-sm text-[#f2f5f9] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[#84a584]"
+            />
+          </div>
+
+          {error && (
+            <p className="rounded-[12px] bg-[#a58484]/10 border border-[#a58484]/30 px-4 py-3 text-sm text-[#a58484]">
+              {decodeURIComponent(error)}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="w-full rounded-[60px] bg-[#84a584] px-6 py-3 text-sm font-semibold text-[#1a1f1a] transition-colors hover:bg-[#9ab89a] focus:outline-none focus:ring-2 focus:ring-[#84a584] focus:ring-offset-2 focus:ring-offset-[#1a1f1a]"
+          >
+            Iniciar sesión
+          </button>
+        </form>
+      </div>
+
+      <p className="mt-6 text-center text-xs text-[var(--color-text-muted)]">
+        ¿No tienes cuenta? Contacta al administrador.
+      </p>
+    </div>
+  );
+}
