@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { createClient } from "@/lib/supabase/server";
 import { LicitacionesTable } from "@/components/licitaciones-table";
 import type { LicitacionPreview } from "@/lib/types";
@@ -15,20 +17,33 @@ async function getLicitaciones(): Promise<LicitacionPreview[]> {
     .order("biddoc_start_dt", { ascending: false });
 
   if (error) {
-    console.error("Error fetching licitaciones:", {
-      message: error.message,
-      code: error.code,
-      details: error.details,
-      hint: error.hint,
-    });
-    return [];
+    throw new Error(`Supabase error: ${error.message} (code: ${error.code})`);
   }
 
   return (data as LicitacionPreview[]) || [];
 }
 
 export default async function LicitacionesPage() {
-  const licitaciones = await getLicitaciones();
+  let licitaciones: LicitacionPreview[] = [];
+  let error: Error | null = null;
+  
+  try {
+    licitaciones = await getLicitaciones();
+  } catch (e) {
+    error = e instanceof Error ? e : new Error(String(e));
+    console.error("Licitaciones fetch failed:", error);
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-[1393px] px-6 py-8">
+        <div className="rounded-[24px] bg-[#a58484]/10 border border-[#a58484]/30 p-8">
+          <h1 className="text-2xl font-semibold text-[#a58484] mb-4">Error cargando licitaciones</h1>
+          <p className="text-[#f2f5f9] font-mono text-sm">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">

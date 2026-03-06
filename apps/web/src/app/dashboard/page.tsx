@@ -1,4 +1,6 @@
 // apps/web/app/dashboard/page.tsx
+export const dynamic = 'force-dynamic';
+
 import { createClient } from "@/lib/supabase/server";
 import { StatCard } from "@/components/ui/stat-card";
 import { LicitacionesTable } from "@/components/licitaciones-table";
@@ -41,14 +43,15 @@ async function getDashboardData() {
   const supabase = await createClient();
 
   // Total médicas clasificadas
-  const { count: totalCount } = await supabase
+  const { count: totalCount, error: totalError } = await supabase
     .from("licitaciones_medicas")
     .select("*", { count: "exact", head: true })
     .eq("es_medica", true)
     .not("categoria", "is", null);
+  if (totalError) throw new Error(`Total query failed: ${totalError.message}`);
 
   // Nuevas esta semana — query real
-  const { count: nuevasCount } = await supabase
+  const { count: nuevasCount, error: nuevasError } = await supabase
     .from("licitaciones_medicas")
     .select("*", { count: "exact", head: true })
     .eq("es_medica", true)
@@ -56,9 +59,10 @@ async function getDashboardData() {
       "created_at",
       new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     );
+  if (nuevasError) throw new Error(`Nuevas query failed: ${nuevasError.message}`);
 
   // v2: instcartelno + cartelnm + instnm + tipo_procedimiento + biddoc_end_dt
-  const { data: recentLicitaciones } = await supabase
+  const { data: recentLicitaciones, error: recentError } = await supabase
     .from("licitaciones_medicas")
     .select(
       "id, instcartelno, cartelnm, instnm, categoria, tipo_procedimiento, monto_colones, currency_type, biddoc_start_dt, biddoc_end_dt, estado, es_medica"
@@ -67,11 +71,13 @@ async function getDashboardData() {
     .not("categoria", "is", null)
     .order("created_at", { ascending: false })
     .limit(5);
+  if (recentError) throw new Error(`Recent query failed: ${recentError.message}`);
 
   // resumen_por_categoria — vista filtrada por es_medica=true AND categoria IS NOT NULL
-  const { data: resumenCategoria } = await supabase
+  const { data: resumenCategoria, error: resumenError } = await supabase
     .from("resumen_por_categoria")
     .select("categoria, total, publicadas, adjudicadas, monto_crc, monto_usd");
+  if (resumenError) throw new Error(`Resumen query failed: ${resumenError.message}`);
 
   // Excluir fila categoria=null + castear números (la vista retorna strings)
   const byCategoria = (resumenCategoria ?? [])
@@ -111,7 +117,39 @@ async function getDashboardData() {
 }
 
 export default async function DashboardPage() {
-  const data = await getDashboardData();
+  let data;
+  let error: Error | null = null;
+  
+  try {
+    data = await getDashboardData();
+  } catch (e) {
+    error = e instanceof Error ? e : new Error(String(e));
+    console.error("Dashboard data fetch failed:", error);
+  }
+  
+  if (error) {
+    return (
+      <div className="mx-auto max-w-[1393px] px-6 py-8">
+        <div className="rounded-[24px] bg-[#a58484]/10 border border-[#a58484]/30 p-8">
+          <h1 className="text-2xl font-semibold text-[#a58484] mb-4">Error cargando dashboard</h1>
+          <p className="text-[#f2f5f9] font-mono text-sm">{error.message}</p>
+          <p className="text-[var(--color-text-muted)] mt-4 text-sm">
+            Verifica que las tablas y vistas de Supabase existen y tienen datos.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-[1393px] px-6 py-8">
+        <div className="rounded-[24px] bg-[#2c3833] p-8">
+          <p className="text-[var(--color-text-muted)]">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
