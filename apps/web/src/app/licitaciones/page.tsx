@@ -1,14 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { LicitacionesTable } from "@/components/licitaciones-table";
-import type { Licitacion } from "@/lib/types";
+import type { LicitacionPreview } from "@/lib/types";
 
-async function getLicitaciones() {
+async function getLicitaciones(): Promise<LicitacionPreview[]> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
-    .from("licitaciones_activas")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .from("licitaciones_medicas")
+    .select(
+      "id, instcartelno, cartelnm, instnm, categoria, tipo_procedimiento, monto_colones, currency_type, biddoc_start_dt, biddoc_end_dt, estado, es_medica"
+    )
+    .eq("es_medica", true)
+    .not("categoria", "is", null)
+    .order("biddoc_start_dt", { ascending: false });
 
   if (error) {
     console.error("Error fetching licitaciones:", {
@@ -20,7 +24,7 @@ async function getLicitaciones() {
     return [];
   }
 
-  return data || [];
+  return (data as LicitacionPreview[]) || [];
 }
 
 export default async function LicitacionesPage() {
@@ -62,7 +66,7 @@ export default async function LicitacionesPage() {
 
       {/* Table */}
       <div className="rounded-[32px] bg-[#1a1f1a] p-6">
-        <LicitacionesTable data={licitaciones as Licitacion[]} />
+        <LicitacionesTable data={licitaciones} />
       </div>
     </div>
   );
