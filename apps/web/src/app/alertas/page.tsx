@@ -19,7 +19,7 @@ export default function AlertasPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#1a1f1a]">
+    <div className="min-h-screen">
       <div className="max-w-[1393px] mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -51,7 +51,7 @@ export default function AlertasPage() {
             <p className="text-xs text-[#5a6a62] mb-4 font-[family-name:var(--font-plus-jakarta)]">
               {notificaciones.length} licitación{notificaciones.length !== 1 ? "es" : ""} nueva{notificaciones.length !== 1 ? "s" : ""}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               {notificaciones.map((n) => (
                 <NotificacionCard key={n.id} {...n} />
               ))}

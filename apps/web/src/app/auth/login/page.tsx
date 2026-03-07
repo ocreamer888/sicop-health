@@ -1,11 +1,11 @@
 import { signIn } from "../actions";
 
 interface PageProps {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; message?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: PageProps) {
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
   return (
     <div className="w-full max-w-sm">
@@ -44,12 +44,20 @@ export default async function LoginPage({ searchParams }: PageProps) {
           </div>
 
           <div className="space-y-2">
-            <label
-              htmlFor="password"
-              className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]"
-            >
-              Contraseña
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="password"
+                className="block text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]"
+              >
+                Contraseña
+              </label>
+              <a
+                href="/auth/forgot-password"
+                className="text-xs text-[#84a584] hover:underline"
+              >
+                ¿Olvidaste tu contraseña?
+              </a>
+            </div>
             <input
               id="password"
               name="password"
@@ -62,9 +70,15 @@ export default async function LoginPage({ searchParams }: PageProps) {
           </div>
 
           {error && (
-            <p className="rounded-[12px] bg-[#a58484]/10 border border-[#a58484]/30 px-4 py-3 text-sm text-[#a58484]">
-              {decodeURIComponent(error)}
-            </p>
+            <div className="rounded-[12px] bg-[#a58484]/10 border border-[#a58484]/30 px-4 py-3">
+              <p className="text-sm text-[#a58484]">{decodeURIComponent(error)}</p>
+            </div>
+          )}
+
+          {message && (
+            <div className="rounded-[12px] bg-[#84a584]/10 border border-[#84a584]/30 px-4 py-3">
+              <p className="text-sm text-[#84a584]">{decodeURIComponent(message)}</p>
+            </div>
           )}
 
           <button

@@ -1,15 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+// Get project ID from env or use a default pattern
+const SUPABASE_PROJECT_ID = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/([^.]+)\./)?.[1] || '';
+
 export async function middleware(request: NextRequest) {
-  // Check for Supabase auth cookie
+  // Check for Supabase auth cookie - specifically for THIS project
   // Supabase SSR uses format: sb-<project-ref>-auth-token
   const allCookies = request.cookies.getAll();
   const cookieNames = allCookies.map(c => c.name);
-  const hasAuthCookie = allCookies.some(
-    (cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token')
-  );
+  
+  // Only check for the current project's auth cookie
+  const authCookieName = SUPABASE_PROJECT_ID 
+    ? `sb-${SUPABASE_PROJECT_ID}-auth-token`
+    : null;
+  
+  const hasAuthCookie = authCookieName 
+    ? allCookies.some((cookie) => cookie.name.startsWith(authCookieName))
+    : false;
 
-  console.log("[Middleware] Path:", request.nextUrl.pathname, "Cookies:", cookieNames, "HasAuth:", hasAuthCookie);
+  console.log("[Middleware] Path:", request.nextUrl.pathname, "Project:", SUPABASE_PROJECT_ID, "HasAuth:", hasAuthCookie);
 
   const isAuthPage = request.nextUrl.pathname.startsWith("/auth");
   const isPublicPage = request.nextUrl.pathname === "/";

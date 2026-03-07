@@ -1,5 +1,5 @@
 # SICOP Health Intelligence — Strategic Task List
-_Last updated: 2026-03-06_
+_Last updated: 2026-03-07_
 
 ---
 
@@ -19,11 +19,11 @@ _Last updated: 2026-03-06_
 **Goal:** Solid data layer and auth. No cracks in the foundation.
 
 ### 1.1 Fix Data Layer Inconsistencies
-- [ ] **Migrate `licitaciones/page.tsx` from view to direct table query**
-  - Change from `licitaciones_activas` to `licitaciones_medicas`
-  - Add filters: `es_medica = true`, `categoria IS NOT NULL`
-  - Keep same columns for `LicitacionPreview` compatibility
-  - **Test:** Links from /licitaciones to detail pages work correctly
+- [x] **Migrate `licitaciones/page.tsx` from view to direct table query**
+  - Changed from `licitaciones_activas` to `licitaciones_medicas`
+  - Added filters: `es_medica = true`, `categoria IS NOT NULL`
+  - Kept same columns for `LicitacionPreview` compatibility
+  - **Status:** Complete — `apps/web/src/app/licitaciones/page.tsx` queries table directly
 
 - [ ] **Run 90-day backfill**
   - Execute: `cd services/etl && python main.py --dias 90`
@@ -48,20 +48,27 @@ _Last updated: 2026-03-06_
 
 **Goal:** Working alert creation → matching → notification flow. This is the product.
 
-### 2.1 Alert Configuration UI (`/alertas`)
-- [ ] **Create alertas page scaffold**
-  - Route: `/alertas/page.tsx`
+### 2.1 Notification Inbox UI (`/alertas`) — IMPLEMENTED
+- [x] **Create alertas page scaffold**
+  - Route: `/alertas/page.tsx` — Shows notification inbox, not alert config
   - Protected route (inherits middleware)
   - Layout matches design system
 
+- [x] **Build notifications list view**
+  - Shows new medical licitaciones from last 30 days
+  - Links to detail pages
+  - Empty state when no new notifications
+
+- [x] **Create `notificaciones` table (migration 005)**
+  - One row per new licitacion detected by webhook
+  - Prevents duplicate notifications (UNIQUE on instcartelno)
+  - RLS: authenticated users can read all
+
+### 2.2 Personalized Alert System — PENDING
+Original spec below — implementation uses broadcast pattern (all users get all medical licitaciones). Personalized matching deferred.
+
 - [ ] **Build alert creation form**
-  - Fields:
-    - `nombre` (text input)
-    - `keywords` (tag input, comma-separated)
-    - `categorias` (multi-select: MEDICAMENTO, EQUIPAMIENTO, INSUMO, SERVICIO)
-    - `instituciones` (multi-select from `instituciones_salud` table)
-    - `monto_min`, `monto_max` (number inputs, optional)
-    - `canales` (checkboxes: email, whatsapp)
+  - Fields: `nombre`, `keywords` (tag input), `categorias` (multi-select), `instituciones` (multi-select), `monto_min/max`, `canales`
   - Submit creates row in `alertas_config`
   - **Validation:** At least one of keywords, categorias, or instituciones required
 
@@ -69,39 +76,24 @@ _Last updated: 2026-03-06_
   - Table showing user's active/inactive alerts
   - Toggle on/off switch
   - Edit and Delete actions
-  - Empty state when no alerts created
 
-### 2.2 Alert Matching Engine
 - [ ] **Create edge function: `match-alerts`**
-  - Trigger: HTTP endpoint (called by ETL after insert)
-  - Input: `instcartelno` of new licitacion
-  - Logic:
-    1. Fetch licitacion data
-    2. Query `alertas_config` for all active alerts
-    3. For each alert, evaluate match:
-       - Keywords: OR match in `cartelnm` (case-insensitive)
-       - Categorias: exact match on `categoria`
-       - Instituciones: match on `inst_code`
-       - Monto: between min/max if specified
-    4. Insert matches into `alertas_enviadas` table (prevent duplicates)
-    5. Return array of matched alert IDs + user emails
+  - Match licitaciones against `alertas_config` rules (keywords, categories, institutions, monto)
+  - Insert matches into `alertas_enviadas` table
 
-- [ ] **Create `alertas_enviadas` table (migration 005)**
-  ```sql
-  CREATE TABLE alertas_enviadas (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    alerta_id UUID REFERENCES alertas_config(id),
-    instcartelno TEXT REFERENCES licitaciones_medicas(instcartelno),
-    user_id UUID REFERENCES auth.users(id),
-    enviado_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE(alerta_id, instcartelno) -- prevent duplicates
-  );
-  ```
+- [ ] **Create `alertas_enviadas` table**
+  - Track which alerts triggered for which licitaciones per user
 
-- [ ] **Integrate matching into ETL**
-  - After `uploader.py` inserts new licitaciones
-  - Call edge function for each new `instcartelno`
-  - Log matches for debugging
+### 2.3 Notification Engine (Broadcast Pattern) — CODE COMPLETE
+- [x] **Create edge function: `notify-new-licitacion`**
+  - Triggered by DB webhook on `licitaciones_medicas` INSERT
+  - Sends notification to ALL authenticated users (broadcast pattern)
+  - Calls `send-email` edge function for each user
+  - Prevents duplicates via `notificaciones` table
+
+- [ ] **Integrate into ETL**
+  - DB Webhook: `licitaciones_medicas` INSERT → `notify-new-licitacion`
+  - Currently not deployed — pending email domain verification
 
 ### 2.3 Email Notifications (Resend)
 - [ ] **Setup Resend account**
@@ -224,41 +216,49 @@ _Last updated: 2026-03-06_
 
 ## Success Criteria (Definition of Done)
 
-| Phase | Criteria |
-|-------|----------|
-| **1** | Can log in, see 500+ licitaciones, navigate detail pages without errors |
-| **2** | Create alert with "insulina", new CCSS licitacion triggers, email arrives with correct link |
-| **3** | Dashboard shows personalized recommendations, can export to Excel |
-| **4** | 3+ paying customers, expansion to Guatemala scoped |
+| Phase | Criteria | Status |
+|-------|----------|--------|
+| **1** | Can log in, see 500+ licitaciones, navigate detail pages without errors | In progress — 1.1 complete, 1.2 pending |
+| **2** | New medical licitacion triggers in-app notification for all users (broadcast pattern). Email notification pending domain. | Partial — Code complete, deployment blocked |
+| **2b** | (Future) Create personalized alert with "insulina", only matching licitaciones trigger notification | Not started — requires alert matching engine |
+| **3** | Dashboard shows personalized recommendations, can export to Excel | Not started |
+| **4** | 3+ paying customers, expansion to Guatemala scoped | Not started |
 
 ---
 
 ## Current Blockers
 
-1. `licitaciones/page.tsx` still queries deprecated view — **Fix in Phase 1.1**
-2. RLS not applied in prod — **Fix in Phase 1.2**
-3. No alert matching engine — **Build in Phase 2.2**
-4. No notification sender — **Build in Phase 2.3**
+1. ~~`licitaciones/page.tsx` still queries deprecated view~~ — **FIXED** ✅
+2. RLS not applied in prod — **Run `004_rls.sql` in Supabase SQL Editor**
+3. No 90-day backfill — **Run `cd services/etl && python main.py --dias 90`**
+4. Email notifications blocked — **Need verified custom domain (see Pending section)**
+5. No first admin user — **Create in Supabase Auth Dashboard**
 
 ---
 
 ## Pending — Blocked
 
 ### Email Notifications (Resend + Custom Domain)
-- **Status:** Code complete (`supabase/functions/send-email/index.ts`), deployment blocked.
-- **Blocker:** Resend requires a verified custom domain to send emails. The current site runs on `sicop-health-web.vercel.app` which is a free subdomain Resend does not accept as a sender domain.
-- **What's needed before unblocking:**
-  1. Acquire a custom domain (e.g. `sicop-health.com`)
-  2. Verify the domain in Resend dashboard (add DNS records: SPF, DKIM, DMARC)
-  3. Update `from` field in `send-email/index.ts` to use verified domain (currently set to `alertas@sicop-health.com`)
+- **Status:** Code complete (`supabase/functions/send-email/index.ts`), deployment blocked by domain verification.
+- **Blocker:** Resend requires a verified custom domain to send emails. Free subdomains (`*.vercel.app`) are not accepted.
+- **Options to unblock:**
+  | Option | Effort | Notes |
+  |--------|--------|-------|
+  | 1. Acquire custom domain | Medium | Buy `sicop-health.com`, verify in Resend, add DNS records (SPF, DKIM, DMARC) |
+  | 2. Switch provider | Low-Medium | SendGrid, Postmark, or AWS SES may allow unverified domains with limits |
+  | 3. Defer email | Zero | Keep in-app notifications only; email later when domain acquired |
+- **If proceeding with Option 1 (custom domain):**
+  1. Acquire domain (e.g. `sicop-health.com`)
+  2. Verify in Resend dashboard → add DNS records
+  3. Update `from` field in `send-email/index.ts` (currently `alertas@sicop-health.com`)
   4. Add `RESEND_API_KEY` secret to Supabase Edge Functions
   5. Add `SITE_URL` secret pointing to custom domain
-  6. Deploy both edge functions: `notify-new-licitacion` and `send-email`
-  7. Create DB Webhook in Supabase: `licitaciones_medicas` INSERT → `notify-new-licitacion`
+  6. Deploy: `notify-new-licitacion` and `send-email`
+  7. Create DB Webhook: `licitaciones_medicas` INSERT → `notify-new-licitacion`
 - **Files ready to deploy:**
   - `supabase/functions/notify-new-licitacion/index.ts`
   - `supabase/functions/send-email/index.ts`
-  - `supabase/migrations/005_notificaciones.sql` ← run this first in SQL Editor
+  - `supabase/migrations/005_notificaciones.sql` ← run first in SQL Editor
 
 ---
 
