@@ -139,3 +139,24 @@ export type LicitacionPreview = Pick<
   | "estado"
   | "es_medica"
 >
+
+// ─────────────────────────────────────────────
+// ALERTAS CONFIG
+// ─────────────────────────────────────────────
+
+export interface AlertaConfig {
+  id: string
+  user_id: string
+  nombre: string
+  keywords: string[]
+  categorias: string[]
+  instituciones: string[]
+  monto_min: number | null
+  monto_max: number | null
+  canales: string[]
+  activo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type AlertaFormData = Omit<AlertaConfig, 'id' | 'user_id' | 'created_at' | 'updated_at'>
