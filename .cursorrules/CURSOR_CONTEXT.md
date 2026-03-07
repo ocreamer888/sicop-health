@@ -1,5 +1,5 @@
 # SICOP Health Intelligence — Cursor Context
-_Last updated: 2026-03-06_
+_Last updated: 2026-03-07_
 
 ---
 
@@ -20,19 +20,24 @@ sicop-health/
 │       │   ├── licitaciones/
 │       │   │   ├── page.tsx             ✅ query licitaciones_medicas direct
 │       │   │   └── [id]/page.tsx        ✅ query by instcartelno
+│       │   ├── alertas/
+│       │   │   ├── page.tsx             ⏳ needs rewrite → notification inbox
+│       │   │   ├── actions.ts           ⏳ needs rewrite → getNotificaciones()
+│       │   │   ├── alerta-form.tsx      🔒 preserved — future detailed search UI
+│       │   │   └── alerta-card.tsx      ⏳ needs rewrite → NotificacionCard
 │       │   └── auth/
 │       │       ├── actions.ts            ✅ signIn, signOut (server actions)
 │       │       ├── callback/route.ts     ✅ code exchange
 │       │       ├── layout.tsx            ✅ no Nav
 │       │       └── login/page.tsx        ✅ email/password
 │       ├── components/
-│       │   ├── nav.tsx                   ✅ sign-out, hides on /auth
+│       │   ├── nav.tsx                   ✅ Dashboard | Licitaciones | Alertas (Bell)
 │       │   ├── licitaciones-table.tsx   ✅ links use instcartelno
 │       │   └── ui/
 │       │       ├── stat-card.tsx
 │       │       └── badge.tsx
 │       └── lib/
-│           ├── types.ts                 ✅ schema v2.9
+│           ├── types.ts                 ✅ schema v2.9 + AlertaConfig / AlertaFormData
 │           └── supabase/
 │               ├── client.ts
 │               └── server.ts
@@ -44,11 +49,14 @@ sicop-health/
 │   ├── uploader.py              v2.9
 │   └── requirements.txt
 ├── supabase/
-│   └── migrations/
-│       ├── 001_initial_schema.sql
-│       ├── 002_...sql
-│       ├── 003_schema_v2.sql            ✅ applied in prod
-│       └── 004_rls.sql                  ✅ RLS — run in prod when ready
+│   ├── migrations/
+│   │   ├── 001_initial_schema.sql
+│   │   ├── 002_...sql
+│   │   ├── 003_schema_v2.sql            ✅ applied in prod
+│   │   └── 004_rls.sql                  ✅ applied in prod
+│   └── functions/
+│       ├── notify-new-licitacion/       ⏳ not built yet
+│       └── send-email/                  ⏳ not built yet
 └── .github/workflows/
     └── etl-cron.yml                    ✅ running hourly
 ```
@@ -106,9 +114,12 @@ updated_at       TIMESTAMPTZ DEFAULT now()
 ```
 licitaciones_modificaciones  -- inst_cartel_no, mod_reason, es_medica, etc.
 precios_historicos           -- FK → licitaciones_medicas(instcartelno)
-alertas_config               -- user_id, keywords[], categorias[], canal[]
+alertas_config               -- user_id, keywords[], categorias[], unspsc[], canal[], activo
+                             -- ⚠️ En producción pero NO usada por la app actualmente.
+                             --    Candidata para futura feature de búsquedas guardadas.
 instituciones_salud          -- nombre, codigo_ccss, tipo, region
 ```
+Note: `alertas_enviadas` NO existe en producción (solo en documentación antigua).
 
 ### Vista SQL activa
 ```sql
@@ -138,6 +149,12 @@ type LicitacionPreview = Pick<Licitacion,
   "biddoc_start_dt" | "biddoc_end_dt" | "estado" | "es_medica"
 >
 // LicitacionLike NO existe — fue eliminado. Usar LicitacionPreview.
+
+interface AlertaConfig      // future search/filter config — preserved for later use
+type AlertaFormData         // Omit<AlertaConfig, 'id'|'user_id'|'created_at'|'updated_at'>
+                            // ⚠️ AlertaConfig type has more fields than the production DB
+                            //    schema (nombre, instituciones, monto_min, monto_max).
+                            //    Do NOT use it for direct Supabase queries against alertas_config.
 ```
 
 ---
@@ -176,10 +193,15 @@ currency_type   ← CRC | USD (con guard para ambigüedad)
 | `dashboard/page.tsx` | ✅ | queries v2, nuevasEstaSemana real |
 | `licitaciones/[id]/page.tsx` | ✅ | query by instcartelno, columnas v2 |
 | `licitaciones-table.tsx` | ✅ | link href uses instcartelno (not id) |
-| `lib/types.ts` | ✅ | schema v2.9, TIPO_LABELS exportado |
+| `lib/types.ts` | ✅ | schema v2.9 + AlertaConfig / AlertaFormData |
 | `auth/login/page.tsx` | ✅ | email/password, server action, error via searchParams |
 | `auth/actions.ts` | ✅ | signIn, signOut |
+| `nav.tsx` | ✅ | Dashboard \| Licitaciones \| Alertas (Bell icon) |
 | `licitaciones/page.tsx` | ⏳ | still uses view licitaciones_activas — switch to licitaciones_medicas |
+| `alertas/page.tsx` | ⏳ | built as CRUD rule builder — needs rewrite as notification inbox |
+| `alertas/actions.ts` | ⏳ | has CRUD actions — needs rewrite: single getNotificaciones() |
+| `alertas/alerta-form.tsx` | 🔒 | preserved — future detailed search UI (do not delete) |
+| `alertas/alerta-card.tsx` | ⏳ | needs rewrite as read-only NotificacionCard |
 
 ---
 
@@ -187,9 +209,13 @@ currency_type   ← CRC | USD (con guard para ambigüedad)
 
 1. **`licitaciones/page.tsx`** — actualizar a columnas v2 (instcartelno, cartelnm, instnm)
 2. **Backfill 90 días** — `python main.py --dias 90` una sola vez
-3. **`alertas/page.tsx`** — UI para configurar keywords y canales
-4. **`notifier.py`** — integración Resend / WhatsApp
-5. **`precios/page.tsx`** — historial de precios por ítem con chart
+3. **`alertas/page.tsx`** — rewrite as notification inbox (query licitaciones_medicas, es_medica=true, DESC)
+4. **`alertas/actions.ts`** — rewrite: single `getNotificaciones()` action
+5. **`alertas/alerta-card.tsx`** — rewrite as read-only `NotificacionCard`
+6. **`supabase/functions/notify-new-licitacion`** — edge function: DB webhook on INSERT → fetch all users → send email (Resend) + WhatsApp placeholder
+7. **`supabase/functions/send-email`** — Resend email edge function
+8. **DB Webhook** — configure in Supabase Dashboard: INSERT on licitaciones_medicas → notify-new-licitacion
+9. **`precios/page.tsx`** — historial de precios por ítem con chart
 
 ---
 
@@ -211,7 +237,7 @@ currency_type   ← CRC | USD (con guard para ambigüedad)
 
 - **Login**: email/password vía Supabase Auth; usuarios se crean en Supabase Dashboard (sin self-signup por ahora).
 - **Middleware**: refresca sesión en cada request; sin sesión → redirect a `/auth/login`.
-- **RLS** (migration 004): `licitaciones_medicas`, `licitaciones_modificaciones`, `precios_historicos`, `instituciones_salud` → SELECT para `authenticated`. `alertas_config` → CRUD solo donde `auth.uid() = user_id`. ETL usa service_role y no se ve afectado.
+- **RLS** (migration 004): `licitaciones_medicas`, `licitaciones_modificaciones`, `precios_historicos`, `instituciones_salud` → SELECT para `authenticated`. `alertas_config` → CRUD solo donde `auth.uid() = user_id` (tabla en prod pero no usada actualmente). ETL usa service_role y no se ve afectado.
 
 ---
 
@@ -337,11 +363,12 @@ MEDICAMENTO | EQUIPAMIENTO | INSUMO | SERVICIO
 ```
 /                     → redirect → /dashboard (protected)
 /dashboard            → DashboardPage (protected)
-/licitaciones         → LicitacionesPage (protected; still uses view)
+/licitaciones         → LicitacionesPage (protected; still uses view — pending update)
 /licitaciones/[id]    → LicitacionDetailPage, id = instcartelno (protected)
 /auth/login           → LoginPage (public)
 /auth/callback        → code exchange for magic link/OAuth (public)
-/alertas              → ⏳ not built
+/alertas              → ⏳ notification inbox — all new licitaciones medicas, newest first
+                         each card links to /licitaciones/[instcartelno]
 /precios              → ⏳ not built
 ```
 
@@ -356,5 +383,10 @@ MEDICAMENTO | EQUIPAMIENTO | INSUMO | SERVICIO
 4. licitaciones_activas (view) no expone id — licitaciones/page.tsx sigue usándola; links deben usar instcartelno
 5. licitaciones/page.tsx: migrar query a licitaciones_medicas para consistencia
 6. StatCard "nuevas esta semana" usa created_at, no biddoc_start_dt — puede incluir re-runs
-7. Aplicar 004_rls.sql en prod cuando se vaya a exigir auth en producción
+7. alertas_config en producción: tabla existente con columnas reales = id, user_id, keywords[],
+   categorias[], unspsc[], canal[], activo. NO tiene: nombre, instituciones, monto_min, monto_max.
+   El type AlertaConfig en types.ts tiene campos extra — solo usar para futura feature de búsqueda.
+8. alertas_enviadas NO existe en producción — ignorar cualquier referencia en documentación antigua.
+9. /alertas page y actions.ts: actualmente implementados como CRUD de reglas (incorrecto).
+   Pendiente reescribir como notification inbox que consulta licitaciones_medicas directamente.
 ```
