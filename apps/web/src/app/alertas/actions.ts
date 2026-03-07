@@ -14,6 +14,7 @@ export async function getNotificaciones() {
       "id, instcartelno, cartelnm, instnm, categoria, monto_colones, currency_type, biddoc_end_dt, estado, created_at"
     )
     .eq("es_medica", true)
+    .in("estado", ["Publicado", "Modificado"])
     .gte("created_at", since.toISOString())
     .order("created_at", { ascending: false })
     .limit(100);
