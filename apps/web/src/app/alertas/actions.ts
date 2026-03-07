@@ -5,17 +5,22 @@ import { createClient } from "@/lib/supabase/server";
 export async function getNotificaciones() {
   const supabase = await createClient();
 
-  const since = new Date();
-  since.setDate(since.getDate() - 30);
-
   const { data, error } = await supabase
-    .from("licitaciones_medicas")
-    .select(
-      "id, instcartelno, cartelnm, instnm, categoria, monto_colones, currency_type, biddoc_end_dt, estado, created_at"
-    )
-    .eq("es_medica", true)
-    .in("estado", ["Publicado", "Modificado"])
-    .gte("created_at", since.toISOString())
+    .from("notificaciones")
+    .select(`
+      id,
+      created_at,
+      licitaciones_medicas!inner (
+        instcartelno,
+        cartelnm,
+        instnm,
+        categoria,
+        monto_colones,
+        currency_type,
+        biddoc_end_dt,
+        estado
+      )
+    `)
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -23,5 +28,11 @@ export async function getNotificaciones() {
     console.error("[getNotificaciones]", error.message);
     return [];
   }
-  return data ?? [];
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    created_at: row.created_at,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(row.licitaciones_medicas as any),
+  }));
 }
