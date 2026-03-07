@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Table2, Activity, LogOut } from "lucide-react";
+import { Home, Table2, Bell, Activity, LogOut } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/licitaciones", label: "Licitaciones", icon: Table2 },
+  { href: "/alertas", label: "Alertas", icon: Bell },
 ];
 
 export function Nav() {
@@ -65,10 +66,13 @@ export function Nav() {
           <form action={signOut}>
             <button
               type="submit"
-              className="flex items-center gap-2 rounded-[37px] border border-[#898a7d]/40 bg-transparent px-4 py-3 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[#2c3833] hover:text-[#f2f5f9]"
+              className="flex items-center gap-2 rounded-[37px] border border-[#898a7d]/40 bg-transparent px-4 py-3 text-sm text-[var(--color-text-muted)] transition-all hover:bg-[#a58484]/10 hover:border-[#a58484]/40 hover:text-[#f2f5f9] active:scale-95"
               title="Cerrar sesión"
             >
               <LogOut size={18} />
+              <span className="hidden sm:inline font-[family-name:var(--font-plus-jakarta)]">
+                Salir
+              </span>
             </button>
           </form>
         </div>
