@@ -27,12 +27,21 @@ export async function createAlerta(formData: AlertaFormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "No autorizado" };
 
-  const { error } = await supabase.from("alertas_config").insert({
+  console.log("[createAlerta] Form data:", formData);
+
+  const insertData = {
     ...formData,
     user_id: user.id,
-  });
+  };
 
-  if (error) return { error: error.message };
+  console.log("[createAlerta] Insert data:", insertData);
+
+  const { error } = await supabase.from("alertas_config").insert(insertData);
+
+  if (error) {
+    console.error("[createAlerta] Error:", error.message, error.details);
+    return { error: error.message };
+  }
   revalidatePath("/alertas");
   return { success: true };
 }

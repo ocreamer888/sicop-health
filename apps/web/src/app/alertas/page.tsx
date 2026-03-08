@@ -13,6 +13,7 @@ export default function AlertasPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingAlerta, setEditingAlerta] = useState<AlertaConfig | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -27,12 +28,19 @@ export default function AlertasPage() {
 
   async function handleSubmit(data: AlertaFormData) {
     setSaving(true);
-    if (editingAlerta) {
-      await updateAlerta(editingAlerta.id, data);
-    } else {
-      await createAlerta(data);
-    }
+    setError(null);
+    
+    const result = editingAlerta 
+      ? await updateAlerta(editingAlerta.id, data)
+      : await createAlerta(data);
+    
     setSaving(false);
+    
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+    
     closeForm();
     await load();
   }
@@ -72,6 +80,7 @@ export default function AlertasPage() {
   function closeForm() {
     setShowForm(false);
     setEditingAlerta(null);
+    setError(null);
   }
 
   return (
@@ -151,6 +160,13 @@ export default function AlertasPage() {
                     <X size={16} />
                   </button>
                 </div>
+                
+                {error && (
+                  <div className="mb-4 p-3 rounded-[12px] bg-[#a58484]/20 border border-[#a58484]/40 text-[#e09090] text-sm">
+                    ⚠️ {error}
+                  </div>
+                )}
+                
                 <AlertaForm
                   initial={editingAlerta ?? undefined}
                   onSubmit={handleSubmit}
