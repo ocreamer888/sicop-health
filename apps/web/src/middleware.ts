@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
 // Get project ID from env or use a default pattern
 const SUPABASE_PROJECT_ID = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/([^.]+)\./)?.[1] || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export async function middleware(request: NextRequest) {
   // Check for Supabase auth cookie - specifically for THIS project
@@ -37,6 +40,38 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
+  }
+
+  // Onboarding check: if authenticated and NOT on onboarding page, check if onboarding is needed
+  if (hasAuthCookie && !request.nextUrl.pathname.startsWith("/auth")) {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_KEY, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+          });
+        },
+      },
+    });
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("onboarding_completed")
+        .eq("user_id", user.id)
+        .single();
+
+      if (!profile || !profile.onboarding_completed) {
+        console.log("[Middleware] Redirecting to onboarding - incomplete profile");
+        const url = request.nextUrl.clone();
+        url.pathname = "/auth/onboarding";
+        return NextResponse.redirect(url);
+      }
+    }
   }
 
   return NextResponse.next({ request });
