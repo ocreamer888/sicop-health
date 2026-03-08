@@ -15,6 +15,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, LayoutGrid, Table as TableIcon, Building2, Tag, CalendarClock, ArrowUpRight, X, SlidersHorizontal } from "lucide-react";
 import { Badge } from "./ui/badge";
+import { UrgencyBadge } from "./ui/urgency-badge";
 import { TIPO_LABELS } from "@/lib/types";
 import type { LicitacionPreview, Categoria } from "@/lib/types";
 
@@ -98,16 +99,19 @@ function LicitacionCard({ licitacion }: LicitacionCardProps) {
 
   return (
     <div className="rounded-[24px] bg-[#2c3833] border border-[#3d4d45] p-5 hover:border-[#84a584]/40 transition-all h-full flex flex-col">
-      {/* Top row: time + estado */}
+      {/* Top row: time + estado + urgency */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-[#5a6a62]">
           {licitacion.biddoc_start_dt ? timeAgo(licitacion.biddoc_start_dt) : "N/A"}
         </span>
-        {licitacion.estado && (
-          <span className="text-xs px-2.5 py-0.5 rounded-[60px] bg-[#1a1f1a] text-[#5a6a62] border border-[#3d4d45]">
-            {licitacion.estado}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {licitacion.estado && (
+            <span className="text-xs px-2.5 py-0.5 rounded-[60px] bg-[#1a1f1a] text-[#5a6a62] border border-[#3d4d45]">
+              {licitacion.estado}
+            </span>
+          )}
+          <UrgencyBadge biddocEndDt={licitacion.biddoc_end_dt} />
+        </div>
       </div>
 
       {/* Title */}
@@ -303,9 +307,12 @@ export function LicitacionesTable({
       accessorKey: "estado",
       header: "Estado",
       cell: ({ row }) => (
-        <span className="text-xs text-[var(--color-text-muted)]">
-          {row.getValue("estado") || "N/A"}
-        </span>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-xs text-[var(--color-text-muted)]">
+            {row.getValue("estado") || "N/A"}
+          </span>
+          <UrgencyBadge biddocEndDt={row.original.biddoc_end_dt} />
+        </div>
       ),
     },
   ];
