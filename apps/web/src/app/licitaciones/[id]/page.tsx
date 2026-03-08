@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { UrgencyBadge } from "@/components/ui/urgency-badge";
+import { ActivityRecorder } from "./activity-recorder";
 import {
   ArrowLeft, Calendar, DollarSign, Building2,
   FileText, AlertCircle,
@@ -63,6 +65,12 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
+      {/* Record activity for gamification */}
+      <ActivityRecorder
+        instcartelno={licitacion.instcartelno}
+        instCode={licitacion.inst_code}
+        biddocStartDt={licitacion.biddoc_start_dt}
+      />
       {/* Back */}
       <Link
         href="/licitaciones"
@@ -93,6 +101,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             <Badge variant="sage">{categoriaLabels[licitacion.categoria]}</Badge>
           )}
           <Badge variant="secondary">{licitacion.estado || "N/A"}</Badge>
+          <UrgencyBadge biddocEndDt={licitacion.biddoc_end_dt} />
         </div>
         <h1 className="text-3xl font-semibold text-[#f9f5df] overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--font-montserrat)]">
           {licitacion.cartelnm || "Sin título"}
