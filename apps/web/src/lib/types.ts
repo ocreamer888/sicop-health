@@ -160,3 +160,39 @@ export interface AlertaConfig {
 }
 
 export type AlertaFormData = Omit<AlertaConfig, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+
+// ─────────────────────────────────────────────
+// GAMIFICATION
+// ─────────────────────────────────────────────
+
+export interface UserProfile {
+  user_id: string
+  categorias: string[]
+  instituciones: string[]
+  monto_min: number | null
+  keywords: string[]
+  onboarding_completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BadgeDefinition {
+  id: string
+  name: string
+  description: string
+  icon: string
+}
+
+export interface UserBadge {
+  user_id: string
+  badge_id: string
+  earned_at: string
+}
+
+export interface GamificationState {
+  intelScore: number          // 0–100
+  streak: number              // days
+  unreadCount: number
+  earnedBadgeIds: string[]
+  profile: UserProfile | null
+}
