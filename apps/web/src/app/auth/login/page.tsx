@@ -8,22 +8,26 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const { error, message } = await searchParams;
 
   return (
-    <div className="w-full max-w-sm">
+    <div className="w-full h-full flex flex-col items-center justify-center max-w-md">
       {/* Logo */}
-      <div className="mb-8 text-center">
+      <div className="mb-8 absolute top-12 text-center">
         <span className="text-3xl font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
           SICOP
         </span>
         <span className="ml-2 text-base text-[#84a584] font-[family-name:var(--font-raleway)]">
           Health Intelligence
         </span>
-        <p className="mt-3 text-sm text-[var(--color-text-muted)] font-[family-name:var(--font-plus-jakarta)]">
-          Inicia sesión en tu cuenta
-        </p>
       </div>
 
+      <div className="my-4 text-center text-[var(--color-text-muted)] font-[family-name:var(--font-plus-jakarta)]">
+      <p className="text-sm text-neutral-400 font-[family-name:var(--font-plus-jakarta)]">
+        Inicia sesión en tu cuenta
+        </p>
+        </div>
+        
       {/* Card */}
-      <div className="rounded-[24px] bg-[#1a1f1a] p-8">
+      <div className="rounded-[24px] bg-[#1a1f1a] p-8 w-full">
+        
         <form action={signIn} className="space-y-5">
           <div className="space-y-2">
             <label

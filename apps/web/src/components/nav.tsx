@@ -63,6 +63,11 @@ export function Nav() {
               Live Data
             </span>
           </button>
+          <button className="flex items-center gap-2 rounded-[37px] border border-[#898a7d] bg-[#1a1f1a] px-6 py-3 text-sm text-white transition-colors hover:bg-[#2c3833]">
+            <Link href="/notifications">
+            <Bell size={18} />
+            </Link>
+          </button>
           <form action={signOut}>
             <button
               type="submit"

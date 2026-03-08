@@ -37,11 +37,11 @@ export async function createClient() {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
-              console.log("[Supabase] Cookie set:", name);
             });
-          } catch (error) {
-            // Log error but don't throw - cookies might still work
-            console.error("[Supabase] Error setting cookies:", error instanceof Error ? error.message : String(error));
+          } catch {
+            // Silently ignore - in Server Components, cookies are read-only.
+            // This is expected behavior when the client attempts session refresh.
+            // Cookie updates only work in Server Actions, Route Handlers, or Middleware.
           }
         },
       },

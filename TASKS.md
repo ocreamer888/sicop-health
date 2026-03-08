@@ -3,6 +3,138 @@ _Last updated: 2026-03-07_
 
 ---
 
+# SHIP MVP — Active Sprint (NOW)
+
+**Goal:** Get the product in users' hands immediately. Cut scope to what works today.
+
+**Definition of Done:**
+- User can sign up, log in, see medical bids
+- User can browse/search licitaciones
+- User gets notifications for new medical bids (in-app)
+- ETL runs hourly fetching new data
+
+### Ship Checklist
+- [x] **REST API ETL is working** (`fetcher.py` uses REST endpoints)
+- [ ] **24-hour incremental fetch configured** (not 90-day every run)
+- [ ] **90-day backfill completed** (~32K medical bids in DB)
+- [ ] **Authentication working** (signup/login/logout)
+- [ ] **Licitaciones page loads** with real data
+- [ ] **Alertas page shows notifications**
+- [ ] **Parse confidence UI** for amounts (HIGH/LOW/NONE)
+- [ ] **First admin user created**
+- [ ] **Hourly GitHub Actions running**
+- [ ] **Smoke test passed** (end-to-end flow)
+
+**Post-Ship (P2):** Email notifications, WhatsApp, advanced filters, analytics dashboard
+
+---
+
+## P0: REST API Migration — The Massive Unlock
+
+**Context:** REST API discovery eliminates CSV download flow entirely. This is a **foundational change** that unlocks everything else. Must complete before any other work.
+
+### ETL Architecture Rewrite
+- [ ] **Rewrite `fetcher.py` to use REST API endpoints**
+  - Target: `listPageRelease`, `listPageAwarded`, `listPageModified`
+  - Implement pagination through `totalPages`
+  - Use `formFilters` wrapper with ISO 8601 dates
+  - **Deliverable:** `services/etl/fetcher.py` v2.0 with REST calls
+
+- [ ] **Eliminate `parser.py` entirely**
+  - REST returns clean JSON — no CSV encoding bugs, no pandas
+  - Move `detalle` regex (amount/supplier parsing) to thin `extractor.py` or `uploader.py`
+  - Delete `parser.py` v2.1 and all CSV parsing logic
+  - **Deliverable:** 50% code reduction, no pandas dependency
+
+- [ ] **Implement 24-hour incremental fetch**
+  - `bgnYmd = NOW() - INTERVAL '24 hours'` as default
+  - Keep `--backfill` flag for 90-day initial load
+  - **Deliverable:** ~95% reduction in fetch time (42s → 3s)
+
+- [ ] **Test source-side filtering in `formFilters`**
+  - Try passing `proceType`, `instCd` to reduce data volume
+  - If supported: fetch only medical bids, eliminate post-fetch filter
+  - **Deliverable:** Document which filters work
+
+### Data Schema Updates (Post-REST)
+- [ ] **Add new API fields to schema**
+  - `cartelcate` (Bienes/Servicios/Obras)
+  - `excepcioncd` (BD105 exception codes)
+  - `modreason` (modification reason text)
+  - `vigenciacontrato` + `unidadvigencia`
+  - **Deliverable:** Migration to add REST-only fields
+
+- [ ] **Add parse_confidence column**
+  - Migration: `ALTER TABLE licitaciones_medicas ADD COLUMN parse_confidence TEXT CHECK (parse_confidence IN ('NONE', 'LOW', 'HIGH'))`
+  - Logic: NONE = no monto AND no supplier, LOW = partial, HIGH = both present
+  - **Deliverable:** Schema supports confidence scoring for detalle parsing
+
+---
+
+## P1: Validation & Deep Data — COMPLETE ✅
+
+**Status:** Documented 2026-03-08. Not blockers for core product. Full findings in `scripts/p1_output/P1_FINDINGS.md`.
+
+### Summary
+| Task | Status | Finding |
+|------|--------|---------|
+| JSP endpoint test | ✅ | `CE_MOD_DATOSABIERTOSVIEW.jsp` works (200 OK) but returns HTML form, not JSON directly |
+| Proveedores catalog | ✅ | Accessible via JSP but requires Playwright form submission to export |
+| UNSPSC line items | ✅ | Detail endpoints (lineItems, partidas) return 500 — need Angular app context |
+
+### Key Finding
+The datos abiertos module **is viable** but requires browser automation (Playwright/Selenium) to:
+1. Navigate the JSP form
+2. Fill date ranges and filters  
+3. Click export button
+4. Parse JSON/Excel export
+
+**This is P4 work** — valuable for price benchmarking and exact UNSPSC classification, but not required for core product MVP. The REST API ETL (P0) provides sufficient data (~32K records, 95% classifier accuracy).
+
+### Path Forward (When Ready for P4)
+```python
+# Playwright pattern for datos abiertos
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.goto(JSP_URL)
+    page.fill("#bgnYmd", "01/01/2026")
+    page.fill("#endYmd", "07/03/2026")
+    page.select_option("#tipoReporte", "DETALLE_PLIEGO")
+    # ... trigger export and parse
+```
+
+**Alternative for MVP:** Build supplier normalization incrementally from existing `licitaciones_medicas` data via `supplierNm` + `supplierCd` parsing.
+
+---
+
+## P2: Frontend Features (Blocked until REST migration stable)
+
+**Context:** UI work that becomes possible/trivial once REST ETL is running.
+
+### UI Enhancements
+- [ ] **Update UI to surface parse confidence**
+  - HIGH: Show formatted amount and supplier normally
+  - LOW/NONE: Show "Monto no disponible" + raw detalle excerpt + "Ver en SICOP" link
+  - **Deliverable:** Honest data presentation, keep users in-app
+
+- [ ] **Real pagination on licitaciones table**
+  - Use `totalElements`, `totalPages` from API response
+  - Add page controls with actual page numbers
+  - **Deliverable:** Browse 32K+ records efficiently
+
+- [ ] **Procedure type filter dropdown**
+  - Source from BD103 codes: LY, LE, LD, PX, SE, RE
+  - Full text labels: "LICITACIÓN MAYOR", "LICITACIÓN REDUCIDA"
+  - **Deliverable:** Filter by procedure type in UI
+
+- [ ] **Dashboard stats from `getGeneralReport`**
+  - Call `epCartel/getGeneralReport` for SICOP-wide summary
+  - Display total published/adjudicated counts
+  - **Deliverable:** Real summary stats card on dashboard
+
+---
+
 ## Philosophy
 
 **Ship the core value proposition first.** The alert system is what differentiates this from a spreadsheet. Everything else is optimization.
@@ -25,19 +157,19 @@ _Last updated: 2026-03-07_
   - Kept same columns for `LicitacionPreview` compatibility
   - **Status:** Complete — `apps/web/src/app/licitaciones/page.tsx` queries table directly
 
-- [ ] **Run 90-day backfill**
+- [x] **Run 90-day backfill**
   - Execute: `cd services/etl && python main.py --dias 90`
   - Validate row counts in Supabase dashboard
   - **Deliverable:** 500+ licitaciones in DB with full history
 
 ### 1.2 Apply RLS in Production
-- [ ] **Execute migration 004_rls.sql in Supabase Dashboard**
+- [x] **Execute migration 004_rls.sql in Supabase Dashboard**
   - Navigate to SQL Editor → New query
   - Paste contents of `supabase/migrations/004_rls.sql`
   - Run and verify no errors
   - **Test:** Try accessing data without auth (should fail)
 
-- [ ] **Create first admin user**
+- [x] **Create first admin user**
   - Supabase Dashboard → Authentication → Users → Add user
   - Set email/password for initial access
   - **Deliverable:** Can log in to /dashboard with real credentials
@@ -64,25 +196,6 @@ _Last updated: 2026-03-07_
   - Prevents duplicate notifications (UNIQUE on instcartelno)
   - RLS: authenticated users can read all
 
-### 2.2 Personalized Alert System — PENDING
-Original spec below — implementation uses broadcast pattern (all users get all medical licitaciones). Personalized matching deferred.
-
-- [ ] **Build alert creation form**
-  - Fields: `nombre`, `keywords` (tag input), `categorias` (multi-select), `instituciones` (multi-select), `monto_min/max`, `canales`
-  - Submit creates row in `alertas_config`
-  - **Validation:** At least one of keywords, categorias, or instituciones required
-
-- [ ] **Build alerts list view**
-  - Table showing user's active/inactive alerts
-  - Toggle on/off switch
-  - Edit and Delete actions
-
-- [ ] **Create edge function: `match-alerts`**
-  - Match licitaciones against `alertas_config` rules (keywords, categories, institutions, monto)
-  - Insert matches into `alertas_enviadas` table
-
-- [ ] **Create `alertas_enviadas` table**
-  - Track which alerts triggered for which licitaciones per user
 
 ### 2.3 Notification Engine (Broadcast Pattern) — CODE COMPLETE
 - [x] **Create edge function: `notify-new-licitacion`**
@@ -95,7 +208,7 @@ Original spec below — implementation uses broadcast pattern (all users get all
   - DB Webhook: `licitaciones_medicas` INSERT → `notify-new-licitacion`
   - Currently not deployed — pending email domain verification
 
-### 2.3 Email Notifications (Resend)
+### 2.3 Email Notifications (Resend) PENDING
 - [ ] **Setup Resend account**
   - Sign up at resend.com
   - Verify domain (or use onboarding domain)
@@ -115,23 +228,6 @@ Original spec below — implementation uses broadcast pattern (all users get all
   - For each match with email channel: call `send-email`
   - Log successes/failures
 
-### 2.4 Test End-to-End
-- [ ] **Create test alert**
-  - Keyword: "insulina"
-  - User: your email
-  - Channel: email
-
-- [ ] **Verify detection**
-  - Manually trigger ETL or wait for hourly run
-  - Confirm new licitacion with "insulina" triggers match
-  - Check `alertas_enviadas` table has row
-
-- [ ] **Verify notification**
-  - Email received within 5 minutes
-  - Links work correctly
-  - Design renders properly
-
----
 
 ## Phase 3: Polish & Growth (Week 4)
 

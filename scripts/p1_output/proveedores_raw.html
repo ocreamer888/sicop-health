@@ -1,0 +1,187 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Compras según tipo de proveedor</title>
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" type="text/css" href="https://www.sicop.go.cr/portal/css/MLINK.css">
+<link rel="stylesheet" type="text/css" href="https://www.sicop.go.cr/portal/css/comn/calendar.css">
+<link rel="stylesheet" type="text/css" href="https://www.sicop.go.cr/pcontdocs/css/CE.css">
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/btnFlesh.js"></script>
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/wz_tooltip.js"></script>
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/prototype.js"></script>
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/calendar.js"></script>
+<script type="text/javascript" src="https://www.sicop.go.cr/portal/js/comn/check.js"></script>
+<script language="javascript"  src="https://www.sicop.go.cr/portal/js/comn/popup.js"></script>
+<script type="text/javascript">
+
+function toVerifyDate(fm) {
+    var fechaInicio;
+    var fechaFin;
+    if (fm == 1) {
+        fechaInicio = document.getElementById('bgnYmd').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmd').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+    if (fm == 2) {
+
+        fechaInicio = document.getElementById('bgnYmdDC').value.split("/");
+
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdDC').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+    if (fm == 3) {
+        fechaInicio = document.getElementById('bgnYmdA').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdA').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+    if (fm == 4) {
+        fechaInicio = document.getElementById('bgnYmdR').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdR').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+    if (fm == 5) {
+        fechaInicio = document.getElementById('bgnYmdO').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdO').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+    if (fm == 6) {
+        fechaInicio = document.getElementById('bgnYmdAF').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdAF').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+
+    }
+    if (fm == 7) {
+        fechaInicio = document.getElementById('bgnYmdC').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdC').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+
+    }
+    if (fm == 8) {
+        fechaInicio = document.getElementById('bgnYmdOP').value.split("/");
+        fechaInicio = fechaInicio[2].concat("-", fechaInicio[1], "-", fechaInicio[0]);
+        fechaInicio = new Date(fechaInicio).getTime();
+        fechaInicio = Math.round(fechaInicio / (1000 * 60 * 60 * 24));
+
+        fechaFin = document.getElementById('endYmdOP').value.split("/");
+        fechaFin = fechaFin[2].concat("-", fechaFin[1], "-", fechaFin[0]);
+        fechaFin = new Date(fechaFin).getTime();
+        fechaFin = Math.round(fechaFin / (1000 * 60 * 60 * 24));
+    }
+
+    
+    
+    if((fechaFin - fechaInicio)>183){
+        alert("El rango de fechas es superior a 6 meses, seleccione un rango inferior.");
+        return false;
+        }else{
+            return true;
+        }
+    
+} 
+    /*JAGM*/
+    
+
+    
+    var cantones_San_Jose=   ["","San_Jose","Escazu","Desamparados","Puriscal","Tarrazu","Aserri","Mora","Goicoechea","Santa_Ana","Alajuelita","Vazquez_de_Coronado","Acosta","Tibas","Moravia","Montes_de_Oca","Turrubares","Dota","Curridabat","Perez_Zeledon","Leon_Cortes"];
+    var cantones_Alajuela=    ["Seleccione","Alajuela","San_Ramon","Grecia","San_Mateo","Atenas","Naranjo", "Palmares","Poas","Orotina","San_Carlos","Alfaro_Ruiz","Valverde_Vega","Upala","Los_Chiles","Guatuso"];
+    var cantones_Cartago=     ["","Cartago","Paraiso","La_Union","Jimenez","Turrialba","Alvarado","Oreamuno","El_Guarco"];
+    var cantones_Heredia=     ["","Heredia","Barva","Santo_Domingo","Santa_Barbara","San_Rafael","San_Isidro","Belen","Flores","San_Pablo","Sarapiqui"];
+    var cantones_Guanacaste=   ["","Liberia","Nicoya","Santa_Cruz","Bagaces","Carrillo","Canas","Abangares","Tilaran","Nandayure","La_Cruz","Hojancha"];
+    var cantones_Puntarenas=   ["","Puntarenas","Esparza","Buenos_Aires","Montes_de_Oro","Osa","Aguirre","Golfito","Coto_Brus","Parrita","Corredores","Garabito"];
+    var cantones_Limon=   ["","Limon","Pococi","Siquirres","Talamanca","Matina", "Guacimo"];
+
+    //Distritos de cantones de San José
+    var distritos_San_Jose =     ["Carmen","Merced","Hospital","Catedral","Zapote","San Francisco de Dos Rios","Uruca","Mata Redonda","Pavas","Hatillo","San Sebastian"];
+    var distritos_Escazu =       ["Escazu","San Antonio","San Rafael"];
+    var distritos_Desamparados = ["Desamparados","San Miguel","San Juan de Dios","San Rafael Arriba","San Antonio","Frailes","Patarra","San Cristobal","Rosario","Damas","San Rafael Abajo","Gravilias","Los Guido"];
+    var distritos_Puriscal =     ["Santiago","Mercedes Sur","Barbacoas","Grifo Alto","San Rafael","Candelaria","Desamparaditos","San Antonio","Chires"];
+    var distritos_Tarrazu =      ["San Marcos","San Lorenzo","San Carlos"];
+    var distritos_Aserri =       ["Aserri","Tarbaca","Vuelta de Jorco","San Gabriel","Legua","Monterrey","Salitrillos",];
+    var distritos_Mora =         ["Colon","Guayabo","Tabarcia","Piedras Negras","Picagres",];
+    var distritos_Goicoechea =   ["Guadalupe","San Francisco","Calle Blancos","Mata de Platano","Ipis","Rancho Redondo","Purral"];
+    var distritos_Santa_Ana =    ["Escazu","San Antonio","San Rafael"];
+    var distritos_Alajuelita =   ["Alajuelita","San Josecito","San Antonio","Concepcion","San Felipe"];
+    var distritos_Vazquez_de_Coronado =     ["San Isidro","San Rafael","Dulce Nombre de Jesus","Patalillo","Cascajal"];
+    var distritos_Acosta =       ["San Ignacio de Acosta","Guaitil","Palmichal","Cangrejal","Sabanillas"];
+    var distritos_Tibas =        ["San Juan","Cinco esquinas","Anselmo Llorente","Leon XIII","Colima"];
+    var distritos_Moravia =      ["San Vicente","San Jeronimo","Trinidad"];
+    var distritos_Montes_de_Oca =          ["San Pedro","Sabanilla","Mercedes","San Rafael"];
+    var distritos_Turrubares =   ["San Pablo","San Pedro","San Juan de Mata","San Luis","Carara"];
+    var distritos_Dota =         ["Santa Maria","Jardin","Copey"];
+    var distritos_Curridabat =   ["Curridabat","Granadilla","Sanchez","Tirrases"];
+    var distritos_Perez_Zeledon =      ["San Isidro del General","General","Daniel Flores","Rivas","San Pedro","Platanares","Pejibaye","Cajon","Baru","Rio Nuevo","Paramo"];
+    var distritos_Leon_Cortes =       ["San Pablo","San Andres","Llano Bonito","San Isidro","Santa Cruz","San Antonio"];
+        
+    //Distritos de cantones de Alajuela
+    var distritos_Alajuela =  ["Alajuela","San Jose","Carrizal","San Antonio","Guacima","San Isidro","Sabanilla","Sa

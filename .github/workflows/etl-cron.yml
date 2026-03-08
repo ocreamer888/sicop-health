@@ -32,7 +32,7 @@ jobs:
         run: pip install -r services/etl/requirements.txt
         # Sin cd — más limpio, mismo resultado
 
-      - name: Run ETL Pipeline
+      - name: Run ETL Pipeline (24h incremental)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -45,7 +45,7 @@ jobs:
           LOG_LEVEL: INFO
         run: |
           cd services/etl
-          python main.py
+          python main.py 1  # 1 day = 24 hour incremental fetch
 
       - name: Upload logs on failure
         if: failure()

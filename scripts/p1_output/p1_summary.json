@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-03-08T11:09:04.436023",
+  "results": {
+    "datos_abiertos": "failed",
+    "proveedores": "failed",
+    "detalle_unspsc": "failed",
+    "price_bank": "failed"
+  },
+  "output_dir": "/Users/macm1air/Documents/Code/sicop-health/scripts/p1_output"
+}
