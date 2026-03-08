@@ -63,22 +63,26 @@ User signs up → Logs in → Sees medical bids → Creates alert → Gets notif
    cd services/etl
    python main.py 90
    ```
+   DONE
 
 2. **Create admin user** in Supabase Dashboard
    - Go to Authentication → Users → Add user
    - Set email/password
    - Test login at `/auth/login`
+   DONE AND WORKING
 
 3. **Verify database counts**
    ```sql
    SELECT COUNT(*) FROM licitaciones_medicas WHERE es_medica = true;
    -- Should be ~500+ for MVP, ~32K with full backfill
    ```
+   541 BY NOW
 
 4. **Test ETL in Actions**
    - Go to GitHub → Actions → SICOP ETL Pipeline
    - Check last run was successful
    - Verify it's running hourly
+   DONE AND WORKING
 
 5. **Smoke test the app**
    ```bash
@@ -91,6 +95,7 @@ User signs up → Logs in → Sees medical bids → Creates alert → Gets notif
    - Navigate to `/licitaciones`
    - Verify bids load
    - Check `/alertas` shows notifications
+   DONE AND WORKING. WE NEED TO FINISH THE ALERT ENGINE.
 
 6. **Deploy to Vercel**
    ```bash
@@ -99,6 +104,7 @@ User signs up → Logs in → Sees medical bids → Creates alert → Gets notif
    - Set environment variables in Vercel dashboard:
      - `NEXT_PUBLIC_SUPABASE_URL`
      - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     DONE AND WORKING.
 
 ---
 
@@ -118,22 +124,22 @@ User signs up → Logs in → Sees medical bids → Creates alert → Gets notif
 ## 🚀 Ship Day Tasks (Priority Order)
 
 ### Hour 1: Verification
-- [ ] Run 90-day backfill locally
-- [ ] Verify database row counts
-- [ ] Test login with admin user
-- [ ] Run local smoke test
+- [X ] Run 90-day backfill locally
+- [ X] Verify database row counts
+- [ X] Test login with admin user
+- [ X] Run local smoke test
 
 ### Hour 2: Deploy
-- [ ] Deploy web app to Vercel
-- [ ] Configure production env vars
-- [ ] Test production auth flow
-- [ ] Verify production data loads
+- [ X] Deploy web app to Vercel
+- [ x] Configure production env vars
+- [x ] Test production auth flow
+- [x ] Verify production data loads
 
 ### Hour 3: Polish
 - [ ] Add parse confidence UI (quick win)
 - [ ] Test notification flow
 - [ ] Create welcome/landing content
-- [ ] Invite first beta users
+- [x] Invite first beta users
 
 ---
 
@@ -187,7 +193,7 @@ The core product loop is functional:
 - ✅ Database has medical bids (~32K with backfill)
 - ✅ Auth is configured
 - ✅ Frontend pages exist
-- ⚠️ Needs 90-day backfill run + admin user created
+- ✅ Needs 90-day backfill run + admin user created
 
 **Estimated time to ship: 2-3 hours**
 

@@ -84,7 +84,7 @@ export default function AlertasPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#1a1f1a]">
+    <div className="min-h-screen">
       <div className="max-w-[1393px] mx-auto px-6 py-8">
 
         {/* Header */}
@@ -132,7 +132,7 @@ export default function AlertasPage() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {alertas.map((alerta) => (
                   <AlertaCard
                     key={alerta.id}
