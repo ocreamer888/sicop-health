@@ -31,7 +31,6 @@ export default function OnboardingPage() {
   const [instituciones, setInstituciones] = useState<string[]>([]);
   const [montoMin, setMontoMin] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
 
   function toggleItem(value: string, list: string[], setList: (v: string[]) => void) {
     setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
@@ -39,10 +38,7 @@ export default function OnboardingPage() {
 
   async function handleFinish() {
     setLoading(true);
-    setDone(true);
-    setTimeout(async () => {
-      await completeOnboarding({ categorias, instituciones, monto_min: montoMin });
-    }, 1500);
+    await completeOnboarding({ categorias, instituciones, monto_min: montoMin });
   }
 
   const pillCls = (selected: boolean) =>
@@ -51,22 +47,6 @@ export default function OnboardingPage() {
         ? "bg-[#84a584] border-[#84a584] text-white"
         : "border-[#3d4d45] text-[#f2f5f9] hover:border-[#84a584]/50"
     }`;
-
-  if (done) {
-    return (
-      <div className="min-h-screen bg-[#1a1f1a] flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-5xl mb-4">✅</div>
-          <h2 className="text-2xl font-bold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
-            Tu radar está listo
-          </h2>
-          <p className="text-[var(--color-text-muted)] mt-2 font-[family-name:var(--font-plus-jakarta)]">
-            Redirigiendo al dashboard...
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#1a1f1a] flex items-center justify-center px-4">
