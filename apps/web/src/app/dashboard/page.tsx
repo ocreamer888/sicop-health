@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { StatCard } from "@/components/ui/stat-card";
 import { LicitacionesTable } from "@/components/licitaciones-table";
 import { Badge } from "@/components/ui/badge";
+import { IntelScore } from "@/components/ui/intel-score";
+import { StreakCounter } from "@/components/ui/streak-counter";
+import { BadgeShelf } from "@/components/ui/badge-shelf";
+import { calcIntelScore, calcStreak, getIntelScoreNextAction } from "@/lib/gamification";
 import {
   FileText,
   DollarSign,
@@ -14,6 +18,7 @@ import {
   Stethoscope,
   Microscope,
   Briefcase,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 import type { LicitacionPreview, Categoria } from "@/lib/types";
@@ -105,6 +110,47 @@ async function getDashboardData() {
   const montoCRC = byCategoria.reduce((sum, r) => sum + r.monto_crc, 0);
   const montoUSD = byCategoria.reduce((sum, r) => sum + r.monto_usd, 0);
 
+  // Gamification data
+  const { data: { user } } = await supabase.auth.getUser();
+  let gamificationData = null;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    const { data: activityRows } = await supabase
+      .from("user_activity")
+      .select("activity_date")
+      .eq("user_id", user.id)
+      .order("activity_date", { ascending: false });
+
+    const { data: badgeRows } = await supabase
+      .from("user_badges")
+      .select("badge_id")
+      .eq("user_id", user.id);
+
+    // Urgency: tenders closing in next 48h
+    const now = new Date().toISOString();
+    const in48h = new Date(Date.now() + 48 * 3_600_000).toISOString();
+    const { count: urgentCount } = await supabase
+      .from("licitaciones_medicas")
+      .select("*", { count: "exact", head: true })
+      .eq("es_medica", true)
+      .gte("biddoc_end_dt", now)
+      .lte("biddoc_end_dt", in48h);
+
+    gamificationData = {
+      profile,
+      activityCount: activityRows?.length ?? 0,
+      activityDates: activityRows?.map(r => r.activity_date) ?? [],
+      earnedBadgeIds: badgeRows?.map(b => b.badge_id) ?? [],
+      urgentCount: urgentCount ?? 0,
+    };
+  }
+
   return {
     totalLicitaciones:  totalCount  ?? 0,
     nuevasEstaSemana:   nuevasCount ?? 0,
@@ -113,6 +159,7 @@ async function getDashboardData() {
     porEstado:          Object.entries(byEstado).map(([estado, count]) => ({ estado, count })),
     montoCRC,
     montoUSD,
+    gamificationData,
   };
 }
 
@@ -194,6 +241,40 @@ export default async function DashboardPage() {
           icon={<Database size={24} />}
         />
       </div>
+
+      {/* Gamification widgets */}
+      {data.gamificationData && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <IntelScore
+              score={calcIntelScore(data.gamificationData.profile, data.gamificationData.activityCount)}
+              nextAction={getIntelScoreNextAction(data.gamificationData.profile, data.gamificationData.activityCount)}
+            />
+            <StreakCounter streak={calcStreak(data.gamificationData.activityDates)} />
+            {(data.gamificationData.urgentCount ?? 0) > 0 && (
+              <Link href="/licitaciones?urgente=true">
+                <div className="rounded-[24px] bg-[#2c3833] border border-[#3d4d45] p-5 hover:border-[#84a584]/50 transition-all cursor-pointer">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock size={16} className="text-[#b5a88a]" />
+                    <span className="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide">Urgente</span>
+                  </div>
+                  <p className="text-xl font-bold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
+                    ⏳ {data.gamificationData.urgentCount}
+                  </p>
+                  <p className="text-xs text-[#5a6a62] mt-1 font-[family-name:var(--font-plus-jakarta)]">
+                    licitaciones cierran en 48h
+                  </p>
+                </div>
+              </Link>
+            )}
+          </div>
+
+          {/* Badge shelf */}
+          <div className="mb-8">
+            <BadgeShelf earnedBadgeIds={data.gamificationData.earnedBadgeIds} />
+          </div>
+        </>
+      )}
 
       {/* Categorías */}
       <div className="mb-8">
