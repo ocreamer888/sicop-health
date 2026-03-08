@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, BellOff, Pencil, Trash2, Mail } from "lucide-react";
+import { Bell, BellOff, Pencil, Trash2, Mail, Copy } from "lucide-react";
 import type { AlertaConfig } from "@/lib/types";
 import { deleteAlerta, toggleAlerta } from "./actions";
 
@@ -21,12 +21,13 @@ const INSTITUCIONES_LABELS: Record<string, string> = {
 interface AlertaCardProps {
   alerta: AlertaConfig;
   onEdit: (alerta: AlertaConfig) => void;
+  onDuplicate?: (alerta: AlertaConfig) => void;
 }
 
-export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
+export function AlertaCard({ alerta, onEdit, onDuplicate }: AlertaCardProps) {
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [active, setActive] = useState(alerta.activo);
+  const [active, setActive] = useState(alerta.activo ?? true);
 
   async function handleToggle() {
     setToggling(true);
@@ -57,12 +58,22 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
             : <BellOff size={18} className="text-[#5a6a62] shrink-0" />
           }
           <h3 className="font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)] leading-tight">
-            {alerta.nombre}
+            {alerta.nombre || "Alerta sin nombre"}
           </h3>
         </div>
         <div className="flex items-center gap-1 ml-2 shrink-0">
+          {onDuplicate && (
+            <button
+              onClick={() => onDuplicate(alerta)}
+              title="Duplicar alerta"
+              className="p-1.5 rounded-[12px] text-[#5a6a62] hover:text-[#84a584] hover:bg-[#84a584]/10 transition-all"
+            >
+              <Copy size={14} />
+            </button>
+          )}
           <button
             onClick={() => onEdit(alerta)}
+            title="Editar alerta"
             className="p-1.5 rounded-[12px] text-[#5a6a62] hover:text-[#f2f5f9] hover:bg-[#3d4d45] transition-all"
           >
             <Pencil size={14} />
@@ -70,6 +81,7 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
           <button
             onClick={handleDelete}
             disabled={deleting}
+            title="Eliminar alerta"
             className="p-1.5 rounded-[12px] text-[#5a6a62] hover:text-[#a58484] hover:bg-[#a58484]/10 transition-all disabled:opacity-50"
           >
             <Trash2 size={14} />
@@ -79,7 +91,7 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
 
       {/* Tags */}
       <div className="space-y-2 mb-4">
-        {alerta.keywords.length > 0 && (
+        {alerta.keywords?.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {alerta.keywords.map((kw) => (
               <span
@@ -91,7 +103,7 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
             ))}
           </div>
         )}
-        {alerta.categorias.length > 0 && (
+        {alerta.categorias?.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {alerta.categorias.map((cat) => (
               <span
@@ -103,7 +115,7 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
             ))}
           </div>
         )}
-        {alerta.instituciones.length > 0 && (
+        {alerta.instituciones?.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {alerta.instituciones.map((inst) => (
               <span
@@ -123,9 +135,9 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
             {alerta.monto_max ? `₡${alerta.monto_max.toLocaleString("es-CR")}` : "∞"}
           </p>
         )}
-        {alerta.keywords.length === 0 &&
-          alerta.categorias.length === 0 &&
-          alerta.instituciones.length === 0 && (
+        {!alerta.keywords?.length &&
+          !alerta.categorias?.length &&
+          !alerta.instituciones?.length && (
             <p className="text-xs text-[#5a6a62] italic">Todas las licitaciones médicas</p>
           )}
       </div>

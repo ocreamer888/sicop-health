@@ -37,6 +37,28 @@ export default function AlertasPage() {
     await load();
   }
 
+  function handleDuplicate(alerta: AlertaConfig) {
+    const duplicated: AlertaFormData = {
+      nombre: `${alerta.nombre} (copia)`,
+      keywords: alerta.keywords ?? [],
+      categorias: alerta.categorias ?? [],
+      instituciones: alerta.instituciones ?? [],
+      monto_min: alerta.monto_min ?? null,
+      monto_max: alerta.monto_max ?? null,
+      canales: alerta.canales ?? ["email"],
+      activo: true,
+    };
+    
+    // Pre-fill form with duplicated data
+    setEditingAlerta({
+      ...alerta,
+      id: "", // Clear ID so it's treated as new
+      nombre: duplicated.nombre,
+      activo: true,
+    } as AlertaConfig);
+    setShowForm(true);
+  }
+
   function openEdit(alerta: AlertaConfig) {
     setEditingAlerta(alerta);
     setShowForm(true);
@@ -107,6 +129,7 @@ export default function AlertasPage() {
                     key={alerta.id}
                     alerta={alerta}
                     onEdit={openEdit}
+                    onDuplicate={handleDuplicate}
                   />
                 ))}
               </div>
