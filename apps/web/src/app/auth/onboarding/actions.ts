@@ -1,7 +1,6 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 
 export async function completeOnboarding(formData: {
   categorias: string[];
@@ -10,9 +9,9 @@ export async function completeOnboarding(formData: {
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/auth/login");
+  if (!user) throw new Error("Not authenticated");
 
-  await supabase.from("user_profiles").upsert({
+  const { error } = await supabase.from("user_profiles").upsert({
     user_id: user.id,
     categorias: formData.categorias,
     instituciones: formData.instituciones,
@@ -22,5 +21,7 @@ export async function completeOnboarding(formData: {
     updated_at: new Date().toISOString(),
   });
 
-  redirect("/dashboard");
+  if (error) throw new Error(`Failed to save profile: ${error.message}`);
+
+  return { success: true };
 }

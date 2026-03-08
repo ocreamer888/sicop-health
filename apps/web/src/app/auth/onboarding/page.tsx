@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { completeOnboarding } from "./actions";
 
 const CATEGORIAS = [
@@ -26,6 +27,7 @@ const MONTOS = [
 ];
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [instituciones, setInstituciones] = useState<string[]>([]);
@@ -38,7 +40,14 @@ export default function OnboardingPage() {
 
   async function handleFinish() {
     setLoading(true);
-    await completeOnboarding({ categorias, instituciones, monto_min: montoMin });
+    try {
+      await completeOnboarding({ categorias, instituciones, monto_min: montoMin });
+      router.push("/dashboard");
+      router.refresh();
+    } catch (error) {
+      console.error("Onboarding failed:", error);
+      setLoading(false);
+    }
   }
 
   const pillCls = (selected: boolean) =>
