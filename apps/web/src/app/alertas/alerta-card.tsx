@@ -5,6 +5,19 @@ import { Bell, BellOff, Pencil, Trash2, Mail } from "lucide-react";
 import type { AlertaConfig } from "@/lib/types";
 import { deleteAlerta, toggleAlerta } from "./actions";
 
+// Map institution IDs to display names (must match alerta-form.tsx)
+const INSTITUCIONES_LABELS: Record<string, string> = {
+  "CCSS": "CCSS",
+  "INS": "INS",
+  "Hospital": "Hospitales",
+  "MSP": "Ministerio de Salud",
+  "INCIENSA": "INCIENSA",
+  "UCR": "UCR",
+  "UNA": "UNA",
+  "Tecnológico": "Tecnológicos",
+  "CCSS-OTROS": "Otros CCSS",
+};
+
 interface AlertaCardProps {
   alerta: AlertaConfig;
   onEdit: (alerta: AlertaConfig) => void;
@@ -97,7 +110,7 @@ export function AlertaCard({ alerta, onEdit }: AlertaCardProps) {
                 key={inst}
                 className="px-2.5 py-0.5 rounded-[60px] bg-[#5d6a85]/15 text-[#8a9bb5] text-xs"
               >
-                {inst}
+                {INSTITUCIONES_LABELS[inst] ?? inst}
               </span>
             ))}
           </div>

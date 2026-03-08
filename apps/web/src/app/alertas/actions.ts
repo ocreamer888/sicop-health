@@ -4,22 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { AlertaFormData } from "@/lib/types";
 
-export async function getInstituciones() {
-  const supabase = await createClient();
-  
-  const { data, error } = await supabase
-    .from("instituciones_salud")
-    .select("id, nombre, codigo_ccss")
-    .order("nombre", { ascending: true });
-
-  if (error) {
-    console.error("[getInstituciones]", error.message);
-    return [];
-  }
-  
-  return data ?? [];
-}
-
 export async function getAlertas() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

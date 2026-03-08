@@ -1,17 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, Plus, Building2 } from "lucide-react";
 import type { AlertaConfig, AlertaFormData } from "@/lib/types";
-import { getInstituciones } from "./actions";
 
 const CATEGORIAS = ["MEDICAMENTO", "EQUIPAMIENTO", "INSUMO", "SERVICIO"] as const;
 
-interface Institucion {
-  id: string;
-  nombre: string;
-  codigo_ccss: string | null;
-}
+// Simplified institution categories (display name -> inst_code pattern)
+const INSTITUCIONES = [
+  { id: "CCSS", nombre: "CCSS (Caja Costarricense de Seguro Social)" },
+  { id: "INS", nombre: "INS (Instituto Nacional de Seguros)" },
+  { id: "Hospital", nombre: "Hospitales Nacionales" },
+  { id: "MSP", nombre: "Ministerio de Salud Pública" },
+  { id: "INCIENSA", nombre: "INCIENSA" },
+  { id: "UCR", nombre: "UCR (Universidad de Costa Rica)" },
+  { id: "UNA", nombre: "UNA (Universidad Nacional)" },
+  { id: "Tecnológico", nombre: "Tecnológicos de Costa Rica" },
+  { id: "CCSS-OTROS", nombre: "Otros CCSS (EBAIS, Áreas de Salud, etc.)" },
+] as const;
 
 interface AlertaFormProps {
   initial?: AlertaConfig;
@@ -29,17 +35,6 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
   const [montoMin, setMontoMin] = useState<string>(initial?.monto_min?.toString() ?? "");
   const [montoMax, setMontoMax] = useState<string>(initial?.monto_max?.toString() ?? "");
   const [activo, setActivo] = useState(initial?.activo ?? true);
-  
-  const [institucionesList, setInstitucionesList] = useState<Institucion[]>([]);
-  const [showInstituciones, setShowInstituciones] = useState(false);
-
-  useEffect(() => {
-    async function loadInstituciones() {
-      const data = await getInstituciones();
-      setInstitucionesList(data);
-    }
-    loadInstituciones();
-  }, []);
 
   function addTag(value: string, list: string[], setList: (v: string[]) => void, setInput: (v: string) => void) {
     const trimmed = value.trim().toLowerCase();
@@ -148,19 +143,19 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
         </div>
       </div>
 
-      {/* Instituciones - New Design */}
+      {/* Instituciones - Simplified */}
       <div>
         <label className={labelCls}>Instituciones (vacío = todas)</label>
         
         {/* Selected institutions */}
         {instituciones.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {instituciones.map((codigo) => {
-              const inst = institucionesList.find((i) => i.codigo_ccss === codigo);
+            {instituciones.map((id) => {
+              const inst = INSTITUCIONES.find((i) => i.id === id);
               return (
-                <span key={codigo} className="flex items-center gap-1 px-2.5 py-1 rounded-[60px] bg-[#898a7d]/20 text-[#898a7d] text-xs">
-                  {inst?.nombre ?? codigo}
-                  <button type="button" onClick={() => removeTag(codigo, instituciones, setInstituciones)}>
+                <span key={id} className="flex items-center gap-1 px-2.5 py-1 rounded-[60px] bg-[#898a7d]/20 text-[#898a7d] text-xs">
+                  {inst?.nombre ?? id}
+                  <button type="button" onClick={() => toggleInstitucion(id)}>
                     <X size={12} />
                   </button>
                 </span>
@@ -169,39 +164,23 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
           </div>
         )}
 
-        {/* Toggle button to show/hide institution selector */}
-        <button
-          type="button"
-          onClick={() => setShowInstituciones(!showInstituciones)}
-          className="flex items-center gap-2 text-sm text-[#84a584] hover:text-[#a5c4a5] transition-colors"
-        >
-          <Building2 size={14} />
-          {showInstituciones ? "Ocultar instituciones" : "Seleccionar instituciones"}
-        </button>
-
-        {/* Institution pills */}
-        {showInstituciones && (
-          <div className="mt-3 flex flex-wrap gap-2 max-h-48 overflow-y-auto p-3 rounded-[16px] bg-[#1a1f1a] border border-[#3d4d45]">
-            {institucionesList.length === 0 ? (
-              <span className="text-xs text-[#5a6a62]">Cargando instituciones...</span>
-            ) : (
-              institucionesList.map((inst) => (
-                <button
-                  key={inst.id}
-                  type="button"
-                  onClick={() => toggleInstitucion(inst.codigo_ccss ?? inst.id)}
-                  className={`px-3 py-1.5 rounded-[60px] text-xs font-medium border transition-all text-left ${
-                    instituciones.includes(inst.codigo_ccss ?? inst.id)
-                      ? "bg-[#898a7d] border-[#898a7d] text-white"
-                      : "border-[#3d4d45] text-[#f2f5f9] hover:border-[#898a7d]/50"
-                  }`}
-                >
-                  {inst.nombre}
-                </button>
-              ))
-            )}
-          </div>
-        )}
+        {/* Institution pills - always visible, no dropdown needed */}
+        <div className="flex flex-wrap gap-2">
+          {INSTITUCIONES.map((inst) => (
+            <button
+              key={inst.id}
+              type="button"
+              onClick={() => toggleInstitucion(inst.id)}
+              className={`px-3 py-1.5 rounded-[60px] text-xs font-medium border transition-all text-left ${
+                instituciones.includes(inst.id)
+                  ? "bg-[#898a7d] border-[#898a7d] text-white"
+                  : "border-[#3d4d45] text-[#f2f5f9] hover:border-[#898a7d]/50"
+              }`}
+            >
+              {inst.nombre}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Montos */}
