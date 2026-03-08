@@ -59,14 +59,22 @@ export async function middleware(request: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("onboarding_completed")
-        .eq("user_id", user.id)
-        .single();
+      try {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("onboarding_completed")
+          .eq("user_id", user.id)
+          .single();
 
-      if (!profile || !profile.onboarding_completed) {
-        console.log("[Middleware] Redirecting to onboarding - incomplete profile");
+        if (!profile || !profile.onboarding_completed) {
+          console.log("[Middleware] Redirecting to onboarding - incomplete profile");
+          const url = request.nextUrl.clone();
+          url.pathname = "/auth/onboarding";
+          return NextResponse.redirect(url);
+        }
+      } catch (error) {
+        // Table doesn't exist or other error - redirect to onboarding to create profile
+        console.log("[Middleware] Redirecting to onboarding - profile check failed", error);
         const url = request.nextUrl.clone();
         url.pathname = "/auth/onboarding";
         return NextResponse.redirect(url);
