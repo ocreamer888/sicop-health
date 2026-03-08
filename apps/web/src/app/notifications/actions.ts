@@ -36,3 +36,27 @@ export async function getNotificaciones() {
     ...(row.licitaciones_medicas as any),
   }));
 }
+
+export async function markNotificacionRead(notificacionId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase.from("notificaciones_leidas").upsert(
+    { user_id: user.id, notificacion_id: notificacionId },
+    { onConflict: "user_id,notificacion_id" }
+  );
+}
+
+export async function getReadIds(): Promise<string[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("notificaciones_leidas")
+    .select("notificacion_id")
+    .eq("user_id", user.id);
+
+  return data?.map(r => r.notificacion_id) ?? [];
+}

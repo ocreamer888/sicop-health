@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Building2, Tag, CalendarClock, ArrowUpRight } from "lucide-react";
 
 interface NotificacionCardProps {
+  id: string;
   instcartelno: string;
   cartelnm: string | null;
   instnm: string | null;
@@ -11,6 +12,8 @@ interface NotificacionCardProps {
   biddoc_end_dt: string | null;
   estado: string | null;
   created_at: string;
+  isUnread?: boolean;
+  onRead?: () => void;
 }
 
 function formatMonto(monto: number | null, currency: string | null) {
@@ -46,6 +49,7 @@ const CATEGORIA_COLORS: Record<string, string> = {
 };
 
 export function NotificacionCard({
+  id,
   instcartelno,
   cartelnm,
   instnm,
@@ -55,16 +59,26 @@ export function NotificacionCard({
   biddoc_end_dt,
   estado,
   created_at,
+  isUnread,
+  onRead,
 }: NotificacionCardProps) {
   const monto = formatMonto(monto_colones, currency_type);
   const cierre = formatDate(biddoc_end_dt);
   const catColor = categoria ? (CATEGORIA_COLORS[categoria] ?? "bg-[#898a7d]/15 text-[#898a7d]") : null;
 
   return (
-    <div className="rounded-[24px] bg-[#2c3833] border border-[#3d4d45] p-5 hover:border-[#84a584]/40 transition-all">
-      {/* Top row: time + estado */}
+    <div className={`rounded-[24px] bg-[#2c3833] border p-5 hover:border-[#84a584]/40 transition-all ${isUnread ? "border-[#84a584]/50" : "border-[#3d4d45]"}`}>
+      {/* Top row: time + estado + unread indicator */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-[#5a6a62]">{timeAgo(created_at)}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#5a6a62]">{timeAgo(created_at)}</span>
+          {isUnread && (
+            <span className="flex items-center gap-1 text-xs text-[#84a584] font-medium animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#84a584]" />
+              nueva
+            </span>
+          )}
+        </div>
         {estado && (
           <span className="text-xs px-2.5 py-0.5 rounded-[60px] bg-[#1a1f1a] text-[#5a6a62] border border-[#3d4d45]">
             {estado}
@@ -107,6 +121,7 @@ export function NotificacionCard({
       {/* CTA */}
       <Link
         href={`/licitaciones/${instcartelno}`}
+        onClick={onRead}
         className="flex items-center gap-1.5 text-xs font-medium text-[#84a584] hover:text-[#a5c4a5] transition-colors"
       >
         Ver licitación
