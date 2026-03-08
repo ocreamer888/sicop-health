@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Home, Table2, Bell, Activity, LogOut } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
+import { createClient } from "@/lib/supabase/client";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
@@ -13,6 +15,24 @@ const navItems = [
 
 export function Nav() {
   const pathname = usePathname();
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    async function fetchUnread() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const [{ count: total }, { count: read }] = await Promise.all([
+        supabase.from("notificaciones").select("*", { count: "exact", head: true }),
+        supabase.from("notificaciones_leidas").select("*", { count: "exact", head: true }).eq("user_id", user.id),
+      ]);
+
+      setUnread(Math.max(0, (total ?? 0) - (read ?? 0)));
+    }
+    fetchUnread();
+  }, []);
+
   if (pathname.startsWith("/auth")) return null;
 
   return (
@@ -63,11 +83,17 @@ export function Nav() {
               Live Data
             </span>
           </button>
-          <button className="flex items-center gap-2 rounded-[37px] border border-[#898a7d] bg-[#1a1f1a] px-6 py-3 text-sm text-white transition-colors hover:bg-[#2c3833]">
-            <Link href="/notifications">
+          <Link
+            href="/notifications"
+            className="relative flex items-center gap-2 rounded-[37px] border border-[#898a7d] bg-[#1a1f1a] px-6 py-3 text-sm text-white transition-colors hover:bg-[#2c3833]"
+          >
             <Bell size={18} />
-            </Link>
-          </button>
+            {unread > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#84a584] text-white text-[10px] flex items-center justify-center font-bold">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
+          </Link>
           <form action={signOut}>
             <button
               type="submit"
