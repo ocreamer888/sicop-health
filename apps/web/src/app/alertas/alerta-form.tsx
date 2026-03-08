@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { X, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Plus, Building2 } from "lucide-react";
 import type { AlertaConfig, AlertaFormData } from "@/lib/types";
+import { getInstituciones } from "./actions";
 
 const CATEGORIAS = ["MEDICAMENTO", "EQUIPAMIENTO", "INSUMO", "SERVICIO"] as const;
+
+interface Institucion {
+  id: string;
+  nombre: string;
+  codigo_ccss: string | null;
+}
 
 interface AlertaFormProps {
   initial?: AlertaConfig;
@@ -19,10 +26,20 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
   const [kwInput, setKwInput] = useState("");
   const [categorias, setCategorias] = useState<string[]>(initial?.categorias ?? []);
   const [instituciones, setInstituciones] = useState<string[]>(initial?.instituciones ?? []);
-  const [instInput, setInstInput] = useState("");
   const [montoMin, setMontoMin] = useState<string>(initial?.monto_min?.toString() ?? "");
   const [montoMax, setMontoMax] = useState<string>(initial?.monto_max?.toString() ?? "");
   const [activo, setActivo] = useState(initial?.activo ?? true);
+  
+  const [institucionesList, setInstitucionesList] = useState<Institucion[]>([]);
+  const [showInstituciones, setShowInstituciones] = useState(false);
+
+  useEffect(() => {
+    async function loadInstituciones() {
+      const data = await getInstituciones();
+      setInstitucionesList(data);
+    }
+    loadInstituciones();
+  }, []);
 
   function addTag(value: string, list: string[], setList: (v: string[]) => void, setInput: (v: string) => void) {
     const trimmed = value.trim().toLowerCase();
@@ -37,6 +54,12 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
   function toggleCategoria(cat: string) {
     setCategorias((prev) =>
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  }
+
+  function toggleInstitucion(codigo: string) {
+    setInstituciones((prev) =>
+      prev.includes(codigo) ? prev.filter((c) => c !== codigo) : [...prev, codigo]
     );
   }
 
@@ -125,37 +148,60 @@ export function AlertaForm({ initial, onSubmit, onCancel, loading }: AlertaFormP
         </div>
       </div>
 
-      {/* Instituciones */}
+      {/* Instituciones - New Design */}
       <div>
-        <label className={labelCls}>Instituciones (código, vacío = todas)</label>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {instituciones.map((inst) => (
-            <span key={inst} className="flex items-center gap-1 px-3 py-1 rounded-[60px] bg-[#898a7d]/20 text-[#898a7d] text-xs">
-              {inst}
-              <button type="button" onClick={() => removeTag(inst, instituciones, setInstituciones)}>
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            className={inputCls}
-            value={instInput}
-            onChange={(e) => setInstInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); addTag(instInput, instituciones, setInstituciones, setInstInput); }
-            }}
-            placeholder="Ej: 0001102555"
-          />
-          <button
-            type="button"
-            onClick={() => addTag(instInput, instituciones, setInstituciones, setInstInput)}
-            className="px-3 rounded-[12px] border border-[#3d4d45] text-[#898a7d] hover:bg-[#898a7d]/10"
-          >
-            <Plus size={16} />
-          </button>
-        </div>
+        <label className={labelCls}>Instituciones (vacío = todas)</label>
+        
+        {/* Selected institutions */}
+        {instituciones.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {instituciones.map((codigo) => {
+              const inst = institucionesList.find((i) => i.codigo_ccss === codigo);
+              return (
+                <span key={codigo} className="flex items-center gap-1 px-2.5 py-1 rounded-[60px] bg-[#898a7d]/20 text-[#898a7d] text-xs">
+                  {inst?.nombre ?? codigo}
+                  <button type="button" onClick={() => removeTag(codigo, instituciones, setInstituciones)}>
+                    <X size={12} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Toggle button to show/hide institution selector */}
+        <button
+          type="button"
+          onClick={() => setShowInstituciones(!showInstituciones)}
+          className="flex items-center gap-2 text-sm text-[#84a584] hover:text-[#a5c4a5] transition-colors"
+        >
+          <Building2 size={14} />
+          {showInstituciones ? "Ocultar instituciones" : "Seleccionar instituciones"}
+        </button>
+
+        {/* Institution pills */}
+        {showInstituciones && (
+          <div className="mt-3 flex flex-wrap gap-2 max-h-48 overflow-y-auto p-3 rounded-[16px] bg-[#1a1f1a] border border-[#3d4d45]">
+            {institucionesList.length === 0 ? (
+              <span className="text-xs text-[#5a6a62]">Cargando instituciones...</span>
+            ) : (
+              institucionesList.map((inst) => (
+                <button
+                  key={inst.id}
+                  type="button"
+                  onClick={() => toggleInstitucion(inst.codigo_ccss ?? inst.id)}
+                  className={`px-3 py-1.5 rounded-[60px] text-xs font-medium border transition-all text-left ${
+                    instituciones.includes(inst.codigo_ccss ?? inst.id)
+                      ? "bg-[#898a7d] border-[#898a7d] text-white"
+                      : "border-[#3d4d45] text-[#f2f5f9] hover:border-[#898a7d]/50"
+                  }`}
+                >
+                  {inst.nombre}
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* Montos */}
