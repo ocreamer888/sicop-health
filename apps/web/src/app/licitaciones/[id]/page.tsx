@@ -63,7 +63,11 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
   // Node 4 always pendiente (depends on node 3)
   // Node 5 partial if biddoc_end_dt present
   // Node 6 always pendiente (gap)
-  const completedNodes = 1 + (l.biddoc_end_dt ? 1 : 0) // nodes 1 and 5
+  // Nodes 1–6 with data: 1 always, 2 if budget, 3 if modalidad known, 5 if deadline
+  const completedNodes = 1
+    + (l.presupuesto_estimado ? 1 : 0)
+    + (l.modalidad_participacion ? 1 : 0)
+    + (l.biddoc_end_dt ? 1 : 0)
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
@@ -135,14 +139,54 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
           </WorkflowNode>
 
           {/* Node 2 — Presupuesto estimado */}
-          <WorkflowNode nodeNumber={2} label="Presupuesto Estimado" status="pendiente">
-            Pendiente: dato no disponible en API REST — requiere módulo Datos Abiertos (JSP)
+          <WorkflowNode
+            nodeNumber={2}
+            label="Presupuesto Estimado"
+            status={l.presupuesto_estimado ? "active" : "pendiente"}
+          >
+            {l.presupuesto_estimado ? (
+              <div className="rounded-[16px] bg-[#2c3833] p-4">
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                  Presupuesto estimado
+                </p>
+                <p className="text-2xl font-semibold text-[#f9f5df]">
+                  {formatCurrency(l.presupuesto_estimado, l.moneda_presupuesto)}
+                </p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  Solicitud de contratación (Datos Abiertos)
+                </p>
+              </div>
+            ) : (
+              "Pendiente: sin datos de presupuesto disponibles aún"
+            )}
           </WorkflowNode>
 
           {/* Node 3 — Tipo de participación */}
-          <WorkflowNode nodeNumber={3} label="Tipo de Participación" status="pendiente">
-            Pendiente: requiere Datos Abiertos (RE_DatosAbiertosConcursosView.jsp)
-          </WorkflowNode>
+          {(() => {
+            const m = l.modalidad_participacion
+            const status = m === "Precalificación" ? "blocked"
+                         : m ? "active"
+                         : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={3} label="Tipo de Participación" status={status}>
+                {m === "Precalificación" ? (
+                  "Pre-calificación requerida — participación restringida a proveedores registrados"
+                ) : m ? (
+                  <div className="rounded-[16px] bg-[#2c3833] p-4">
+                    <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                      Modalidad
+                    </p>
+                    <p className="text-[#f2f5f9] font-medium">{m}</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                      Participación abierta
+                    </p>
+                  </div>
+                ) : (
+                  "Pendiente: modalidad no disponible en Datos Abiertos aún"
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Node 4 — Elegibilidad */}
           <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status="pendiente">

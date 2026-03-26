@@ -97,6 +97,11 @@ export interface Licitacion {
   vigencia_contrato: string | null
   unidad_vigencia: string | null
 
+  // — Datos Abiertos enrichment —
+  presupuesto_estimado:    number | null
+  moneda_presupuesto:      string | null
+  modalidad_participacion: string | null
+
   // — Meta —
   raw_data: Record<string, unknown>
   created_at: string
