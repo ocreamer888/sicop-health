@@ -256,6 +256,13 @@ def upsert_ofertas(rows: list[dict], supabase_client) -> int:
     valid = [r for r in rows if r and r.get("instcartelno") and r.get("suppliercd")]
     if not valid:
         return 0
+    # Deduplicate by (instcartelno, suppliercd) — O report can return dupes in same batch
+    seen: dict[tuple, dict] = {}
+    for r in valid:
+        seen[(r["instcartelno"], r["suppliercd"])] = r
+    valid = list(seen.values())
+    if not valid:
+        return 0
     (
         supabase_client.table("da_ofertas")
         .upsert(valid, on_conflict="instcartelno,suppliercd")
@@ -305,7 +312,12 @@ async def run_datos_abiertos(
     o_raw = await fetch_report("O", d_from, d_to)
     o_rows = [parse_oferta_record(r) for r in o_raw]
     if supabase_client:
-        stats["ofertas"] = upsert_ofertas([r for r in o_rows if r], supabase_client)
+        # Filter to instcartelnos we actually track — FK constraint on da_ofertas
+        known_resp = supabase_client.table("licitaciones_medicas").select("instcartelno").limit(50000).execute()
+        known_set = {r["instcartelno"] for r in (known_resp.data or [])}
+        valid_o = [r for r in o_rows if r and r.get("instcartelno") in known_set]
+        logger.info("DA O: %d total offers → %d match tracked procedures", len(o_rows), len(valid_o))
+        stats["ofertas"] = upsert_ofertas(valid_o, supabase_client)
 
     logger.info("DA run complete: %s", stats)
     return stats
