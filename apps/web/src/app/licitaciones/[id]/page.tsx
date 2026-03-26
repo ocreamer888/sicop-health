@@ -1,19 +1,20 @@
-// apps/web/app/licitaciones/[id]/page.tsx
-import { createClient } from "@/lib/supabase/server";
-import { notFound } from "next/navigation";
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { UrgencyBadge } from "@/components/ui/urgency-badge";
-import { ActivityRecorder } from "./activity-recorder";
-import {
-  ArrowLeft, Calendar, DollarSign, Building2,
-  FileText, AlertCircle,
-} from "lucide-react";
-import { TIPO_LABELS } from "@/lib/types";
-import type { Licitacion, Categoria } from "@/lib/types";
+// apps/web/src/app/licitaciones/[id]/page.tsx
+import { createClient } from "@/lib/supabase/server"
+import { notFound } from "next/navigation"
+import Link from "next/link"
+import { ArrowLeft } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { UrgencyBadge } from "@/components/ui/urgency-badge"
+import { ActivityRecorder } from "./activity-recorder"
+import { WorkflowNode } from "@/components/workflow/WorkflowNode"
+import { WorkflowProgress } from "@/components/workflow/WorkflowProgress"
+import { DeadlineCountdown } from "@/components/workflow/DeadlineCountdown"
+import { WhatsAppButton } from "@/components/workflow/WhatsAppButton"
+import { TIPO_LABELS } from "@/lib/types"
+import type { Licitacion, Categoria } from "@/lib/types"
 
 interface PageProps {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string }>
 }
 
 const categoriaLabels: Record<Categoria, string> = {
@@ -21,56 +22,57 @@ const categoriaLabels: Record<Categoria, string> = {
   EQUIPAMIENTO: "Equipamiento",
   INSUMO: "Insumo",
   SERVICIO: "Servicio",
-};
-
-function formatCurrency(amount: number | null, currency?: string | null): string {
-  if (amount === null || amount === undefined) return "N/A";
-  const symbol = currency === "USD" || currency === "$" ? "$" : "₡";
-  return `${symbol}${amount.toLocaleString("es-CR")}`;
 }
 
 function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "N/A";
+  if (!dateStr) return "N/A"
   return new Date(dateStr).toLocaleDateString("es-CR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+    year: "numeric", month: "long", day: "numeric",
+  })
+}
+
+function formatCurrency(amount: number | null, currency?: string | null): string {
+  if (amount === null || amount === undefined) return "N/A"
+  const symbol = currency === "USD" || currency === "$" ? "$" : "₡"
+  return `${symbol}${amount.toLocaleString("es-CR")}`
 }
 
 async function getLicitacion(id: string): Promise<Licitacion | null> {
-  const supabase = await createClient();
+  const supabase = await createClient()
   const { data, error } = await supabase
     .from("licitaciones_medicas")
     .select("*")
     .eq("instcartelno", id)
-    .single();
-  if (error || !data) return null;
-  return data as Licitacion;
+    .single()
+  if (error || !data) return null
+  return data as Licitacion
 }
 
 export default async function LicitacionDetailPage({ params }: PageProps) {
-  const { id } = await params;
-  const licitacion = await getLicitacion(id);
+  const { id } = await params
+  const l = await getLicitacion(id)
+  if (!l) notFound()
 
-  if (!licitacion) notFound();
+  const isPublicado = l.estado === "Publicado"
+  const tipoLabel = TIPO_LABELS[l.tipo_procedimiento ?? ""] ?? l.tipo_procedimiento ?? "N/A"
 
-  const isPublicado  = licitacion.estado === "Publicado";
-  const isAdjudicado = licitacion.estado === "Adjudicado";
-
-  const tipoLabel =
-    TIPO_LABELS[licitacion.tipo_procedimiento ?? ""] ??
-    licitacion.tipo_procedimiento ??
-    "N/A";
+  // WorkflowProgress: count active/partial nodes among 1–6
+  // Node 1 always active (instnm always present)
+  // Node 2 always pendiente (gap)
+  // Node 3 always pendiente (gap)
+  // Node 4 always pendiente (depends on node 3)
+  // Node 5 partial if biddoc_end_dt present
+  // Node 6 always pendiente (gap)
+  const completedNodes = 1 + (l.biddoc_end_dt ? 1 : 0) // nodes 1 and 5
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
-      {/* Record activity for gamification */}
       <ActivityRecorder
-        instcartelno={licitacion.instcartelno}
-        instCode={licitacion.inst_code}
-        biddocStartDt={licitacion.biddoc_start_dt}
+        instcartelno={l.instcartelno}
+        instCode={l.inst_code}
+        biddocStartDt={l.biddoc_start_dt}
       />
+
       {/* Back */}
       <Link
         href="/licitaciones"
@@ -80,220 +82,276 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
         Volver a Licitaciones
       </Link>
 
-      {/* Banner — solo para publicadas */}
-      {isPublicado && (
-        <div className="mb-6 flex items-start gap-3 rounded-[16px] border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 text-sm text-yellow-200">
-          <AlertCircle size={18} className="mt-0.5 shrink-0 text-yellow-400" />
-          <span>
-            Esta licitación está <strong>abierta para ofertas</strong>. El adjudicatario,
-            monto contratado y términos de contrato se publicarán una vez sea adjudicada.
-          </span>
-        </div>
-      )}
-
       {/* Header */}
-      <div className="mb-8 overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <span className="font-mono text-sm text-[#84a584]">
-            {licitacion.instcartelno}
-          </span>
-          {licitacion.categoria && (
-            <Badge variant="sage">{categoriaLabels[licitacion.categoria]}</Badge>
+      <div className="mb-4">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <span className="font-mono text-sm text-[#84a584]">{l.instcartelno}</span>
+          {l.categoria && (
+            <Badge variant="sage">{categoriaLabels[l.categoria]}</Badge>
           )}
-          <Badge variant="secondary">{licitacion.estado || "N/A"}</Badge>
-          <UrgencyBadge biddocEndDt={licitacion.biddoc_end_dt} />
+          <Badge variant="secondary">{l.estado || "N/A"}</Badge>
+          <UrgencyBadge biddocEndDt={l.biddoc_end_dt} />
         </div>
         <h1 className="text-3xl font-semibold text-[#f9f5df] overflow-hidden text-ellipsis whitespace-nowrap font-[family-name:var(--font-montserrat)]">
-          {licitacion.cartelnm || "Sin título"}
+          {l.cartelnm || "Sin título"}
         </h1>
       </div>
 
-      {/* Main Grid */}
+      {/* Progress bar */}
+      <WorkflowProgress completedNodes={completedNodes} />
+
+      {/* Main grid */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left — Main Info */}
-        <div className="lg:col-span-2 space-y-6">
 
-          {/* Details Card */}
-          <div className="rounded-[24px] bg-[#1a1f1a] p-6">
-            <h2 className="mb-4 text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
-              Detalles de la Licitación
-            </h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+        {/* LEFT — workflow nodes */}
+        <div className="lg:col-span-2 space-y-4">
 
+          {/* Node 1 — Institución + Fecha */}
+          <WorkflowNode nodeNumber={1} label="Institución y Fecha de Publicación" status="active">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-[16px] bg-[#2c3833] p-4">
-                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Tipo de Proceso</p>
-                <p className="mt-1 text-[#f2f5f9]">{tipoLabel}</p>
-                {TIPO_LABELS[licitacion.tipo_procedimiento ?? ""] && licitacion.tipo_procedimiento && (
-                  <p className="mt-0.5 font-mono text-xs text-[var(--color-text-muted)]">
-                    {licitacion.tipo_procedimiento}
-                  </p>
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Institución</p>
+                <p className="text-[#f2f5f9] font-medium">{l.instnm || "N/A"}</p>
+                {l.inst_code && (
+                  <p className="font-mono text-xs text-[var(--color-text-muted)] mt-0.5">{l.inst_code}</p>
                 )}
               </div>
-
               <div className="rounded-[16px] bg-[#2c3833] p-4">
-                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">UNSPSC</p>
-                <p className="mt-1 text-[#f2f5f9]">{licitacion.unspsc_cd || "N/A"}</p>
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Publicación</p>
+                <p className="text-[#f2f5f9]">{formatDate(l.biddoc_start_dt)}</p>
               </div>
-
               <div className="rounded-[16px] bg-[#2c3833] p-4">
-                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Modalidad</p>
-                <p className="mt-1 text-[#f2f5f9]">{licitacion.modalidad || "N/A"}</p>
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Tipo de Proceso</p>
+                <p className="text-[#f2f5f9]">{tipoLabel}</p>
+                {l.tipo_procedimiento && (
+                  <p className="font-mono text-xs text-[var(--color-text-muted)] mt-0.5">{l.tipo_procedimiento}</p>
+                )}
               </div>
-
               <div className="rounded-[16px] bg-[#2c3833] p-4">
-                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</p>
-                <p className="mt-1 text-[#f2f5f9]">
-                  {isAdjudicado
-                    ? (licitacion.supplier_nm || "N/A")
-                    : isPublicado
-                    ? <span className="italic text-[var(--color-text-muted)]">Pendiente de adjudicación</span>
-                    : (licitacion.supplier_nm || "N/A")
-                  }
-                </p>
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Modalidad</p>
+                <p className="text-[#f2f5f9]">{l.modalidad || "N/A"}</p>
               </div>
+            </div>
+          </WorkflowNode>
 
-              {licitacion.excepcion_cd && (
+          {/* Node 2 — Presupuesto estimado */}
+          <WorkflowNode nodeNumber={2} label="Presupuesto Estimado" status="pendiente">
+            Pendiente: dato no disponible en API REST — requiere módulo Datos Abiertos (JSP)
+          </WorkflowNode>
+
+          {/* Node 3 — Tipo de participación */}
+          <WorkflowNode nodeNumber={3} label="Tipo de Participación" status="pendiente">
+            Pendiente: requiere Datos Abiertos (RE_DatosAbiertosConcursosView.jsp)
+          </WorkflowNode>
+
+          {/* Node 4 — Elegibilidad */}
+          <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status="pendiente">
+            Pendiente: depende del Nodo 3 — se habilitará cuando se conozca el tipo de participación
+          </WorkflowNode>
+
+          {/* Node 5 — Tiempo para fabricar */}
+          <WorkflowNode
+            nodeNumber={5}
+            label="Tiempo para Fabricar"
+            status={l.biddoc_end_dt ? "partial" : "pendiente"}
+          >
+            {l.biddoc_end_dt ? (
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-[16px] bg-[#2c3833] p-4">
-                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Excepción Legal</p>
-                  <p className="mt-1 text-[#f2f5f9]">{licitacion.excepcion_cd}</p>
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
+                    Días hasta deadline
+                  </p>
+                  <DeadlineCountdown biddocEndDt={l.biddoc_end_dt} showRiskLabel={false} />
                 </div>
-              )}
-
-              {licitacion.vigencia_contrato && (
                 <div className="rounded-[16px] bg-[#2c3833] p-4">
-                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Vigencia</p>
-                  <p className="mt-1 text-[#f2f5f9]">
-                    {licitacion.vigencia_contrato} {licitacion.unidad_vigencia}
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                    Apertura de Ofertas
+                  </p>
+                  <p className="text-[#f2f5f9]">{formatDate(l.openbid_dt)}</p>
+                </div>
+              </div>
+            ) : (
+              "Sin fecha límite de oferta disponible"
+            )}
+          </WorkflowNode>
+
+          {/* Node 6 — Cantidades y precios */}
+          <WorkflowNode nodeNumber={6} label="Cantidades y Precios por Línea" status="pendiente">
+            Pendiente: requiere líneas de cartel (CE_MOD_DATOSABIERTOSVIEW.jsp, Reportes 1.1 / 2.1)
+          </WorkflowNode>
+
+          {/* Node 7 — Contactar fabricante */}
+          <WorkflowNode nodeNumber={7} label="Contactar Fabricante" status="partial">
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--color-text-muted)]">
+                Envía la especificación disponible a un fabricante vía WhatsApp.
+                {!l.monto_colones && (
+                  <span className="block mt-1 text-xs italic">
+                    ⚠️ Monto no disponible aún — se incluirá al adjudicarse.
+                  </span>
+                )}
+              </p>
+              <WhatsAppButton
+                instcartelno={l.instcartelno}
+                cartelnm={l.cartelnm}
+                instnm={l.instnm}
+                biddocEndDt={l.biddoc_end_dt}
+                montoColones={l.monto_colones}
+                currencyType={l.currency_type}
+              />
+            </div>
+          </WorkflowNode>
+
+          {/* Node 8-9 — Margen y Dossier */}
+          <WorkflowNode nodeNumber="8–9" label="Margen de Negocio y Solicitud de Dossier" status="pendiente">
+            Proceso externo — el fabricante provee dossier completo (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días.
+          </WorkflowNode>
+
+          {/* Node 10 — Riesgo dossier */}
+          <WorkflowNode
+            nodeNumber={10}
+            label="Riesgo de Timeline del Dossier"
+            status={l.biddoc_end_dt ? "partial" : "pendiente"}
+          >
+            {l.biddoc_end_dt ? (
+              <div className="rounded-[16px] bg-[#2c3833] p-4">
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
+                  Tiempo vs. 15–22 días del dossier
+                </p>
+                <DeadlineCountdown biddocEndDt={l.biddoc_end_dt} showRiskLabel={true} />
+              </div>
+            ) : (
+              "Sin fecha límite disponible para calcular riesgo"
+            )}
+          </WorkflowNode>
+
+          {/* Node 11 — Registro */}
+          <WorkflowNode nodeNumber={11} label="Presentación a Registro" status="pendiente">
+            Proceso externo ante el Ministerio de Salud. Una vez recibido el dossier del fabricante.
+          </WorkflowNode>
+
+          {/* Node 12 — Historial de precios */}
+          <WorkflowNode nodeNumber={12} label="Historial de Participación y Precios" status="pendiente">
+            Pendiente: tabla precioshistoricos vacía — requiere importación de Datos Abiertos (Reportes 5, 6)
+          </WorkflowNode>
+
+          {/* Adjudication info — only when awarded */}
+          {!isPublicado && l.supplier_nm && (
+            <div className="rounded-[24px] bg-[#2c3833] p-6">
+              <h2 className="mb-4 text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
+                Adjudicación
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[16px] bg-[#1a1f1a] p-4">
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Proveedor</p>
+                  <p className="text-[#f2f5f9]">{l.supplier_nm}</p>
+                  {l.supplier_cd && (
+                    <p className="font-mono text-xs text-[var(--color-text-muted)] mt-0.5">{l.supplier_cd}</p>
+                  )}
+                </div>
+                <div className="rounded-[16px] bg-[#1a1f1a] p-4">
+                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Monto Adjudicado</p>
+                  <p className="text-[#f2f5f9] text-xl font-semibold">
+                    {formatCurrency(l.monto_colones, l.currency_type)}
                   </p>
                 </div>
-              )}
-
-              {licitacion.detalle && (
-                <div className="rounded-[16px] bg-[#2c3833] p-4 sm:col-span-2">
-                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Detalle</p>
-                  <p className="mt-1 text-[#f2f5f9] text-sm leading-relaxed">{licitacion.detalle}</p>
-                </div>
-              )}
-
-              {licitacion.mod_reason && (
-                <div className="rounded-[16px] bg-[#2c3833] p-4 sm:col-span-2">
-                  <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Motivo Modificación</p>
-                  <p className="mt-1 text-[#f2f5f9] text-sm leading-relaxed">{licitacion.mod_reason}</p>
-                </div>
-              )}
+                {l.adj_firme_dt && (
+                  <div className="rounded-[16px] bg-[#1a1f1a] p-4">
+                    <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Firmeza</p>
+                    <p className="text-[#f2f5f9]">{formatDate(l.adj_firme_dt)}</p>
+                  </div>
+                )}
+                {l.vigencia_contrato && (
+                  <div className="rounded-[16px] bg-[#1a1f1a] p-4">
+                    <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Vigencia</p>
+                    <p className="text-[#f2f5f9]">{l.vigencia_contrato} {l.unidad_vigencia}</p>
+                  </div>
+                )}
+                {l.detalle && (
+                  <div className="rounded-[16px] bg-[#1a1f1a] p-4 sm:col-span-2">
+                    <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">Detalle</p>
+                    <p className="text-[#f2f5f9] text-sm leading-relaxed">{l.detalle}</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Raw Data */}
-          <div className="rounded-[24px] bg-[#1a1f1a] p-6">
-            <h2 className="mb-4 text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
-              Datos Raw
-            </h2>
-            <pre className="overflow-x-auto rounded-[16px] bg-[#2c3833] p-4 text-xs text-[#e4e4e4]">
-              {JSON.stringify(licitacion.raw_data, null, 2)}
-            </pre>
-          </div>
+          )}
         </div>
 
-        {/* Right — Sidebar */}
+        {/* RIGHT — sidebar */}
         <div className="space-y-6">
 
-          {/* Entity */}
+          {/* Institution card */}
           <div className="rounded-[24px] bg-[#84a584] p-6 text-[#1c1a1f]">
-            <div className="flex items-center gap-3 mb-4">
-              <Building2 size={24} />
-              <h2 className="text-lg font-semibold font-[family-name:var(--font-montserrat)]">Entidad</h2>
-            </div>
-            <p className="text-xl font-medium">{licitacion.instnm || "N/A"}</p>
-            {licitacion.inst_code && (
-              <p className="mt-1 font-mono text-xs opacity-60">{licitacion.inst_code}</p>
+            <h2 className="text-lg font-semibold mb-2 font-[family-name:var(--font-montserrat)]">
+              {l.instnm || "N/A"}
+            </h2>
+            {l.inst_code && (
+              <p className="font-mono text-xs opacity-60">{l.inst_code}</p>
+            )}
+            {l.unspsc_cd && (
+              <p className="mt-2 text-xs opacity-70">UNSPSC: {l.unspsc_cd}</p>
             )}
           </div>
 
-          {/* Amount */}
-          {licitacion.monto_colones ? (
-            <div className="rounded-[24px] bg-[#2c3833] p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <DollarSign size={24} className="text-[#f9f5df]" />
-                <h2 className="text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">Monto</h2>
-              </div>
-              <p className="text-3xl font-semibold text-[#f9f5df]">
-                {formatCurrency(licitacion.monto_colones, licitacion.currency_type)}
-              </p>
+          {/* Deadline countdown sidebar */}
+          {l.biddoc_end_dt && (
+            <div className="rounded-[24px] bg-[#1a1f1a] p-6">
+              <h2 className="text-sm font-semibold text-[#f9f5df] mb-3 font-[family-name:var(--font-montserrat)] uppercase tracking-wider">
+                Deadline
+              </h2>
+              <DeadlineCountdown biddocEndDt={l.biddoc_end_dt} showRiskLabel={true} />
             </div>
-          ) : isPublicado ? (
-            <div className="rounded-[24px] border border-dashed border-[#3d4d45] bg-[#1a1f1a] p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <DollarSign size={24} className="text-[var(--color-text-muted)]" />
-                <h2 className="text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">Monto</h2>
-              </div>
-              <p className="text-sm italic text-[var(--color-text-muted)]">
-                Disponible al adjudicarse
-              </p>
-            </div>
-          ) : null}
+          )}
 
-          {/* Dates */}
-          <div className="rounded-[24px] bg-[#1a1f1a] p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Calendar size={24} className="text-[#84a584]" />
-              <h2 className="text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">Fechas</h2>
+          {/* Publication banner for open tenders */}
+          {isPublicado && (
+            <div className="rounded-[24px] border border-yellow-500/20 bg-yellow-500/5 px-5 py-4 text-sm text-yellow-200">
+              <p className="font-medium mb-1">Licitación abierta</p>
+              <p className="text-xs opacity-80">
+                Monto contratado y proveedor disponibles al adjudicarse.
+              </p>
             </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-[var(--color-text-muted)]">Publicación</p>
-                <p className="text-[#f2f5f9]">{formatDate(licitacion.biddoc_start_dt)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-[var(--color-text-muted)]">Apertura Ofertas</p>
-                <p className="text-[#f2f5f9]">{formatDate(licitacion.openbid_dt)}</p>
-              </div>
-              {licitacion.biddoc_end_dt && (
-                <div>
-                  <p className="text-xs text-[var(--color-text-muted)]">Fin Documentos</p>
-                  <p className="text-[#f2f5f9]">{formatDate(licitacion.biddoc_end_dt)}</p>
-                </div>
-              )}
-              {licitacion.adj_firme_dt && (
-                <div>
-                  <p className="text-xs text-[var(--color-text-muted)]">Firmeza Adjudicación</p>
-                  <p className="text-[#f2f5f9]">{formatDate(licitacion.adj_firme_dt)}</p>
-                </div>
-              )}
-            </div>
-          </div>
+          )}
 
           {/* Classification */}
           <div className="rounded-[24px] bg-[#1a1f1a] p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <FileText size={24} className="text-[#84a584]" />
-              <h2 className="text-lg font-semibold text-[#f9f5df] font-[family-name:var(--font-montserrat)]">
-                Clasificación
-              </h2>
-            </div>
+            <h2 className="text-sm font-semibold text-[#f9f5df] mb-3 font-[family-name:var(--font-montserrat)] uppercase tracking-wider">
+              Clasificación
+            </h2>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[var(--color-text-muted)]">Es Médica</span>
-                <Badge variant={licitacion.es_medica ? "sage" : "secondary"}>
-                  {licitacion.es_medica ? "Sí" : "No"}
-                </Badge>
+                <span className="text-sm text-[var(--color-text-muted)]">Categoría</span>
+                {l.categoria ? (
+                  <Badge variant="sage">{categoriaLabels[l.categoria]}</Badge>
+                ) : (
+                  <Badge variant="secondary">N/A</Badge>
+                )}
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[var(--color-text-muted)]">Categorizada</span>
-                <Badge variant={licitacion.categoria ? "sage" : "secondary"}>
-                  {licitacion.categoria ? "Sí" : "No"}
-                </Badge>
+                <span className="text-sm text-[var(--color-text-muted)]">Estado</span>
+                <Badge variant="secondary">{l.estado || "N/A"}</Badge>
               </div>
-              {licitacion.cartel_cate && (
+              {l.excepcion_cd && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-[var(--color-text-muted)]">Cat. Cartel</span>
-                  <span className="text-xs text-[#e4e4e4]">{licitacion.cartel_cate}</span>
+                  <span className="text-sm text-[var(--color-text-muted)]">Excepción</span>
+                  <span className="text-xs text-[#e4e4e4] font-mono">{l.excepcion_cd}</span>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Modification reason */}
+          {l.mod_reason && (
+            <div className="rounded-[24px] bg-[#1a1f1a] p-6">
+              <h2 className="text-sm font-semibold text-[#f9f5df] mb-2 font-[family-name:var(--font-montserrat)] uppercase tracking-wider">
+                Motivo Modificación
+              </h2>
+              <p className="text-sm text-[#f2f5f9] leading-relaxed">{l.mod_reason}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
-  );
+  )
 }
