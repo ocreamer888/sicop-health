@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { createClient } from "@/lib/supabase/server";
-import { LicitacionesTable } from "@/components/licitaciones-table";
+import { LicitacionesFilter } from "./licitaciones-filter"
 import type { LicitacionPreview } from "@/lib/types";
 
 async function getLicitaciones(): Promise<LicitacionPreview[]> {
@@ -26,7 +26,7 @@ async function getLicitaciones(): Promise<LicitacionPreview[]> {
 export default async function LicitacionesPage() {
   let licitaciones: LicitacionPreview[] = [];
   let error: Error | null = null;
-  
+
   try {
     licitaciones = await getLicitaciones();
   } catch (e) {
@@ -79,10 +79,8 @@ export default async function LicitacionesPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-[32px] bg-[#1a1f1a] p-6">
-        <LicitacionesTable data={licitaciones} />
-      </div>
+      {/* Filter bar + Table */}
+      <LicitacionesFilter data={licitaciones} />
     </div>
   );
 }
