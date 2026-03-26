@@ -14,6 +14,8 @@ export type Estado =
   | "Cancelado"
   | (string & {})
 
+export type WorkflowNodeStatus = "active" | "partial" | "pendiente" | "blocked"
+
 export type TypeKey = "RPT_PUB" | "RPT_ADJ" | "RPT_MOD"
 
 export type TipoProcedimiento =
