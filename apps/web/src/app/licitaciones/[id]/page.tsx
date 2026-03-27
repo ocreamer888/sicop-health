@@ -242,6 +242,8 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                 biddocEndDt={l.biddoc_end_dt}
                 montoColones={l.monto_colones}
                 currencyType={l.currency_type}
+                presupuestoEstimado={l.presupuesto_estimado}
+                monedaPresupuesto={l.moneda_presupuesto}
               />
             </div>
           </WorkflowNode>
