@@ -8,24 +8,30 @@
 ## Tier 1 — Data (unblocks workflow nodes)
 
 ### G1 · Node 6: Line-item quantities + unit prices
-> DA Reports 1.1 / 2.1 → new `lineascarteles` table → Node 6 display
+> Probe confirmed (2026-03-27): no "Reports 1.1/2.1" as separate endpoints exist.
+> Only 11 DA controllers exist. SC has a `CE_DA_SC_LINES_CONTROLLER.java` (CSV only — JSON unconfirmed).
+> Must probe `CE_DA_SC_LINES_CONTROLLER_JSON` and inspect full DC JSON fields before implementing.
 
-- [ ] Confirm exact field names for Reports 1.1 and 2.1 via `SICOP_Exploitable_Data_Reference.md` and live probe
-- [ ] Create migration `010_lineascarteles.sql` (`instcartelno`, `linea`, `codigoproducto`, `descripcion`, `cantidad`, `unidad`, `precio_unitario_estimado`, `moneda`)
-- [ ] Add `fetch_report` config entries for `SC_L` (1.1) and `DC_L` (2.1) in `datos_abiertos.py`
-- [ ] Add `parse_sc_linea_record` and `parse_dc_linea_record` parsers (TDD)
-- [ ] Add `upsert_lineascarteles` upserter (TDD)
-- [ ] Wire into `run_datos_abiertos` after scalar enrichment
+- [x] Confirm controller map via live JS parse of JSP page — see `memory/reference_da_controllers.md`
+- [?] Probe `CE_DA_SC_LINES_CONTROLLER_JSON` — does a JSON line-item endpoint exist?
+- [?] Inspect full DC JSON record fields — do they include line-level data beyond `MODALIDAD_PROCEDIMIENTO`?
+- [ ] Based on probe result: design `lineas_cartel` table schema
+- [ ] Create migration `010_lineas_cartel.sql`
+- [ ] Add confirmed `fetch_report` config entry to `datos_abiertos.py`
+- [ ] Add parser + upserter (TDD)
+- [ ] Wire into `run_datos_abiertos`
 - [ ] Update `types.ts` — add `LineaCartel` type
 - [ ] Update Node 6 in `page.tsx` — show line table when data present
 
 ### G2 · Node 12: Competitor pricing + price history
-> DA Reports 5.1 / 6.2 → populate `precios_historicos` → Node 12 full display
+> DA Reports 1.1/2.1 labels were wrong — real report is `CE_DA_AF_CONTROLLER_JSON` (Adjudicaciones en firme).
+> This is confirmed from live JS parse (2026-03-27).
 
-- [ ] Confirm field names for Reports 5.1 (adjudicated lines) and 6.2 (historical prices) via live probe
-- [ ] Create migration `011_precios_historicos.sql` (if schema changes needed)
-- [ ] Add `fetch_report` config entries for `ADJ_L` (5.1) and `HIST` (6.2)
-- [ ] Add `parse_adj_linea_record` and `parse_hist_record` parsers (TDD)
+- [x] Confirm controller name — `CE_DA_AF_CONTROLLER_JSON` with params `bgnYmdAF`, `endYmdAF`, `instCdAF`, `instNmAF`
+- [ ] Probe AF JSON to confirm field names (adjudicated supplier, amount, lines)
+- [ ] Create migration for `precios_historicos` (if schema changes needed)
+- [ ] Add `AF` to `REPORT_CONFIGS` in `datos_abiertos.py`
+- [ ] Add `parse_af_record` parser (TDD)
 - [ ] Add `upsert_precios_historicos` upserter (TDD)
 - [ ] Wire into `run_datos_abiertos`
 - [ ] Frontend Node 12: price history table + competitor list from `da_ofertas`
