@@ -311,9 +311,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                     </p>
                   </div>
                 ) : node12Status === "pendiente" ? (
-                  <p className="text-sm text-[var(--color-text-muted)]">
-                    Sin datos de participación disponibles
-                  </p>
+                  "Sin datos de participación disponibles"
                 ) : (
                   <div className="space-y-3">
                     {l.fecha_adj_firme && (
