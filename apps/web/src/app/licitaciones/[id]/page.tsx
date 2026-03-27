@@ -17,6 +17,14 @@ interface PageProps {
   params: Promise<{ id: string }>
 }
 
+interface DaOferta {
+  suppliernm: string | null
+  suppliercd: string | null
+  elegible: boolean | null
+  orden_merito: number | null
+  fecha_apertura: string | null
+}
+
 const categoriaLabels: Record<Categoria, string> = {
   MEDICAMENTO: "Medicamento",
   EQUIPAMIENTO: "Equipamiento",
@@ -48,9 +56,19 @@ async function getLicitacion(id: string): Promise<Licitacion | null> {
   return data as Licitacion
 }
 
+async function getOfertas(instcartelno: string): Promise<DaOferta[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_ofertas")
+    .select("suppliernm, suppliercd, elegible, orden_merito, fecha_apertura")
+    .eq("instcartelno", instcartelno)
+    .order("orden_merito", { ascending: true, nullsFirst: false })
+  return (data ?? []) as DaOferta[]
+}
+
 export default async function LicitacionDetailPage({ params }: PageProps) {
   const { id } = await params
-  const l = await getLicitacion(id)
+  const [l, ofertas] = await Promise.all([getLicitacion(id), getOfertas(id)])
   if (!l) notFound()
 
   const isPublicado = l.estado === "Publicado"
@@ -276,10 +294,80 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             Proceso externo ante el Ministerio de Salud. Una vez recibido el dossier del fabricante.
           </WorkflowNode>
 
-          {/* Node 12 — Historial de precios */}
-          <WorkflowNode nodeNumber={12} label="Historial de Participación y Precios" status="pendiente">
-            Pendiente: tabla precioshistoricos vacía — requiere importación de Datos Abiertos (Reportes 5, 6)
-          </WorkflowNode>
+          {/* Node 12 — Participación y Adjudicación */}
+          {(() => {
+            const node12Status = l.desierto
+              ? "blocked"
+              : l.fecha_adj_firme || ofertas.length > 0
+                ? "active"
+                : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={12} label="Historial de Participación y Precios" status={node12Status}>
+                {l.desierto ? (
+                  <div className="rounded-[16px] border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
+                    <p className="text-sm font-semibold text-yellow-300">⚠️ Licitación declarada desierta</p>
+                    <p className="text-xs text-yellow-200/70 mt-0.5">
+                      No se adjudicó ningún proveedor — proceso sin efecto.
+                    </p>
+                  </div>
+                ) : node12Status === "pendiente" ? (
+                  <p className="text-sm text-[var(--color-text-muted)]">
+                    Sin datos de participación disponibles
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {l.fecha_adj_firme && (
+                      <div className="rounded-[16px] bg-[#2c3833] px-4 py-3 flex items-center gap-3">
+                        <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider shrink-0">Adj. firme</span>
+                        <span className="text-[#f2f5f9] font-medium">{formatDate(l.fecha_adj_firme)}</span>
+                      </div>
+                    )}
+                    {ofertas.length > 0 && (
+                      <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                        {/* Table header */}
+                        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Cédula</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Elegible</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Mérito</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Apertura</span>
+                        </div>
+                        {/* Table rows */}
+                        {ofertas.map((o, i) => (
+                          <div
+                            key={i}
+                            className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm text-[#f2f5f9] truncate">{o.suppliernm ?? "–"}</p>
+                            </div>
+                            <p className="font-mono text-xs text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                              {o.suppliercd ?? "–"}
+                            </p>
+                            <div className="flex justify-center">
+                              {o.elegible === true ? (
+                                <span className="rounded-full bg-[#84a584]/20 px-2 py-0.5 text-xs font-medium text-[#84a584]">Sí</span>
+                              ) : o.elegible === false ? (
+                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400/80">No</span>
+                              ) : (
+                                <span className="text-xs text-[var(--color-text-muted)]">–</span>
+                              )}
+                            </div>
+                            <p className="text-sm text-[#f2f5f9] text-center">
+                              {o.orden_merito ?? "–"}
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                              {o.fecha_apertura ? formatDate(o.fecha_apertura) : "–"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Adjudication info — only when awarded */}
           {!isPublicado && l.supplier_nm && (

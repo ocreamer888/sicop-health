@@ -101,6 +101,8 @@ export interface Licitacion {
   presupuesto_estimado:    number | null
   moneda_presupuesto:      string | null
   modalidad_participacion: string | null
+  fecha_adj_firme:         string | null
+  desierto:                boolean
 
   // — Meta —
   raw_data: Record<string, unknown>
