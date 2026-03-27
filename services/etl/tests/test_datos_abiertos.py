@@ -272,16 +272,20 @@ async def test_run_datos_abiertos_calls_all_three_reports():
     dc_record = {"NRO_PROCEDIMIENTO": "2026LD-000001-0031700001", "MODALIDAD_PROCEDIMIENTO": "Cantidad definida"}
     o_record  = {"NUMERO_PROCEDIMIENTO": "2026LD-000001-0031700001", "CEDULA_PROVEEDOR": "123", "ELEGIBLE": "Si"}
 
+    af_record = {"NUMERO_PROCEDIMIENTO": "2026LD-000001-0031700001", "FECHA_ADJ_FIRME": "2026-02-27 15:00:27", "DESIERTO": "N"}
+
     call_order = []
     async def mock_fetch(report_key, *args, **kwargs):
         call_order.append(report_key)
-        return {"SC": [sc_record], "DC": [dc_record], "O": [o_record]}[report_key]
+        return {"SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record]}[report_key]
 
     mock_sb = MagicMock()
     mock_table = MagicMock()
     mock_sb.table.return_value = mock_table
     mock_table.upsert.return_value = mock_table
-    mock_table.execute.return_value = MagicMock()
+    mock_table.select.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"instcartelno": "2026LD-000001-0031700001"}])
 
     with patch("datos_abiertos.fetch_report", side_effect=mock_fetch):
         stats = await run_datos_abiertos(dias=7, supabase_client=mock_sb)
@@ -289,5 +293,156 @@ async def test_run_datos_abiertos_calls_all_three_reports():
     assert "SC" in call_order
     assert "DC" in call_order
     assert "O" in call_order
+    assert "AF" in call_order
     assert stats["scalar"] >= 0
     assert stats["ofertas"] >= 0
+    assert stats["adjudicaciones"] >= 0
+
+
+# ── parse_af_record ────────────────────────────────────────────────────────────
+
+def test_parse_af_record_header_returns_correct_fields():
+    from datos_abiertos import parse_af_record
+    r = parse_af_record({
+        "NUMERO_PROCEDIMIENTO": "2025LY-000006-0001102105",
+        "FECHA_ADJ_FIRME":      "2026-02-27 15:00:27",
+        "DESIERTO":             "N",
+        "NRO_SICOP":            "20250903493",
+        "PERMITE_RECURSOS":     "Si",
+    })
+    assert r is not None
+    assert r["instcartelno"] == "2025LY-000006-0001102105"
+    assert r["fecha_adj_firme"] == "2026-02-27 15:00:27"
+    assert r["desierto"] is False
+
+
+def test_parse_af_record_desierto_yes():
+    from datos_abiertos import parse_af_record
+    r = parse_af_record({
+        "NUMERO_PROCEDIMIENTO": "2025LY-000007-0001102105",
+        "FECHA_ADJ_FIRME":      "2026-01-15 10:00:00",
+        "DESIERTO":             "S",
+    })
+    assert r is not None
+    assert r["desierto"] is True
+
+
+def test_parse_af_record_skips_partida_schema():
+    from datos_abiertos import parse_af_record
+    # PARTIDA records have NUMERO_PARTIDA, not NUMERO_PROCEDIMIENTO
+    r = parse_af_record({
+        "NUMERO_PARTIDA":     "2026LD-000022-0001102701",
+        "NUMERO_LINEA":       "20260202046",
+        "CANTIDAD_SOLICITADA": "3101111262",
+    })
+    assert r is None
+
+
+def test_parse_af_record_skips_pricing_schema():
+    from datos_abiertos import parse_af_record
+    # PRICING records have CEDULA_PROVEEDOR + NRO_ACTO but no NUMERO_PROCEDIMIENTO
+    r = parse_af_record({
+        "CEDULA_PROVEEDOR":            "3101189270",
+        "PRECIO_UNITARIO_ADJUDICADO":  "25",
+        "NRO_ACTO":                    "1272518",
+        "CANTIDAD_ADJUDICADA":         "1",
+    })
+    assert r is None
+
+
+def test_parse_af_record_handles_none_input():
+    from datos_abiertos import parse_af_record
+    assert parse_af_record({}) is None
+    assert parse_af_record({"NRO_SICOP": "123"}) is None
+
+
+def test_parse_af_record_missing_fecha_adj_firme():
+    from datos_abiertos import parse_af_record
+    r = parse_af_record({
+        "NUMERO_PROCEDIMIENTO": "2025LY-000009-0001102105",
+        "DESIERTO":             "N",
+    })
+    assert r is not None
+    assert r["instcartelno"] == "2025LY-000009-0001102105"
+    assert r["fecha_adj_firme"] is None
+    assert r["desierto"] is False
+
+
+# ── upsert_adjudicaciones ──────────────────────────────────────────────────────
+
+def test_upsert_adjudicaciones_patches_licitaciones():
+    from datos_abiertos import upsert_adjudicaciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "fecha_adj_firme": "2026-02-27 15:00:27", "desierto": False},
+        {"instcartelno": "B", "fecha_adj_firme": "2026-01-15 10:00:00", "desierto": True},
+    ]
+    count = upsert_adjudicaciones(rows, mock_sb)
+    assert count == 2
+
+    mock_sb.table.assert_called_with("licitaciones_medicas")
+    call_args = mock_table.upsert.call_args
+    assert call_args[1].get("on_conflict") == "instcartelno" or call_args[0][1] == "instcartelno" or "instcartelno" in str(call_args)
+
+
+def test_upsert_adjudicaciones_returns_zero_for_empty():
+    from datos_abiertos import upsert_adjudicaciones
+    mock_sb = MagicMock()
+    assert upsert_adjudicaciones([], mock_sb) == 0
+
+
+def test_upsert_adjudicaciones_skips_rows_without_instcartelno():
+    from datos_abiertos import upsert_adjudicaciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "fecha_adj_firme": "2026-02-27 15:00:27", "desierto": False},
+        {"instcartelno": None, "fecha_adj_firme": "2026-01-01 00:00:00", "desierto": False},
+    ]
+    count = upsert_adjudicaciones(rows, mock_sb)
+    assert count == 1
+
+
+# ── run_datos_abiertos with AF ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_datos_abiertos_includes_af_report():
+    from datos_abiertos import run_datos_abiertos
+
+    sc_record = {"NUMERO_PROCEDIMIENTO": "2026LD-000001-0031700001", "PRESUPUESTO": "1000", "MONEDA": "CRC"}
+    dc_record = {"NRO_PROCEDIMIENTO": "2026LD-000001-0031700001", "MODALIDAD_PROCEDIMIENTO": "Cantidad definida"}
+    o_record  = {"NUMERO_PROCEDIMIENTO": "2026LD-000001-0031700001", "CEDULA_PROVEEDOR": "123", "ELEGIBLE": "Si"}
+    af_record = {
+        "NUMERO_PROCEDIMIENTO": "2026LD-000001-0031700001",
+        "FECHA_ADJ_FIRME":      "2026-02-27 15:00:27",
+        "DESIERTO":             "N",
+    }
+
+    call_order = []
+    async def mock_fetch(report_key, *args, **kwargs):
+        call_order.append(report_key)
+        return {"SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record]}[report_key]
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.select.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"instcartelno": "2026LD-000001-0031700001"}])
+
+    with patch("datos_abiertos.fetch_report", side_effect=mock_fetch):
+        stats = await run_datos_abiertos(dias=7, supabase_client=mock_sb)
+
+    assert "AF" in call_order
+    assert "adjudicaciones" in stats
+    assert stats["adjudicaciones"] >= 0

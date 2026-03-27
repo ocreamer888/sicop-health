@@ -49,6 +49,13 @@ REPORT_CONFIGS: dict[str, dict] = {
         "inst_cd":    "instCdO",
         "inst_nm":    "instNmO",
     },
+    "AF": {
+        "controller": "CE_DA_AF_CONTROLLER_JSON",
+        "date_from":  "bgnYmdAF",
+        "date_to":    "endYmdAF",
+        "inst_cd":    "instCdAF",
+        "inst_nm":    "instNmAF",
+    },
 }
 
 HEADERS = {
@@ -216,6 +223,30 @@ def parse_oferta_record(r: dict) -> dict | None:
     }
 
 
+# ─── AF (adjudication) parser ─────────────────────────────────────────────────
+
+def parse_af_record(r: dict) -> dict | None:
+    """
+    AF report → fecha_adj_firme + desierto for licitaciones_medicas upsert.
+
+    The AF flat array contains 3 interleaved schemas:
+      HEADER   — has NUMERO_PROCEDIMIENTO  (we parse these)
+      PARTIDA  — has NUMERO_PARTIDA        (skip)
+      PRICING  — has CEDULA_PROVEEDOR/NRO_ACTO but no NUMERO_PROCEDIMIENTO (skip)
+    """
+    key = r.get("NUMERO_PROCEDIMIENTO")
+    if not key:
+        return None
+    fecha = r.get("FECHA_ADJ_FIRME") or None
+    desierto_raw = (r.get("DESIERTO") or "N").strip().upper()
+    desierto = desierto_raw != "N"
+    return {
+        "instcartelno":   key,
+        "fecha_adj_firme": fecha,
+        "desierto":        desierto,
+    }
+
+
 # ─── Upserters ────────────────────────────────────────────────────────────────
 
 _SCALAR_FIELDS = {"presupuesto_estimado", "moneda_presupuesto", "modalidad_participacion"}
@@ -272,6 +303,23 @@ def upsert_ofertas(rows: list[dict], supabase_client) -> int:
     return len(valid)
 
 
+def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
+    """
+    Patch fecha_adj_firme and desierto onto licitaciones_medicas via upsert.
+    Returns count of rows written.
+    """
+    valid = [r for r in rows if r and r.get("instcartelno")]
+    if not valid:
+        return 0
+    (
+        supabase_client.table("licitaciones_medicas")
+        .upsert(valid, on_conflict="instcartelno")
+        .execute()
+    )
+    logger.info("DA adjudicaciones: %d rows patched", len(valid))
+    return len(valid)
+
+
 # ─── Main runner ──────────────────────────────────────────────────────────────
 
 async def run_datos_abiertos(
@@ -286,14 +334,14 @@ async def run_datos_abiertos(
         dias:             rolling window in days (30 for daily runs, 60 for backfill)
         supabase_client:  live Supabase client from uploader.get_supabase_client()
 
-    Returns: {"scalar": int, "ofertas": int}
+    Returns: {"scalar": int, "ofertas": int, "adjudicaciones": int}
     """
     import datetime as _dt
     today = _dt.date.today()
     d_to   = _fmt_date(today.strftime("%Y-%m-%d"))
     d_from = _fmt_date((today - _dt.timedelta(days=dias)).strftime("%Y-%m-%d"))
 
-    stats = {"scalar": 0, "ofertas": 0}
+    stats = {"scalar": 0, "ofertas": 0, "adjudicaciones": 0}
 
     # SC — presupuesto_estimado + moneda_presupuesto
     sc_raw = await fetch_report("SC", d_from, d_to)
@@ -318,6 +366,13 @@ async def run_datos_abiertos(
         valid_o = [r for r in o_rows if r and r.get("instcartelno") in known_set]
         logger.info("DA O: %d total offers → %d match tracked procedures", len(o_rows), len(valid_o))
         stats["ofertas"] = upsert_ofertas(valid_o, supabase_client)
+
+    # AF — adjudication dates + desierto (G2)
+    af_raw = await fetch_report("AF", d_from, d_to)
+    af_rows = [parse_af_record(r) for r in af_raw]
+    if supabase_client:
+        valid_af = [r for r in af_rows if r]
+        stats["adjudicaciones"] = upsert_adjudicaciones(valid_af, supabase_client)
 
     logger.info("DA run complete: %s", stats)
     return stats

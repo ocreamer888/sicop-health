@@ -1,6 +1,6 @@
 # SICOP-Health — Task Tracker
 
-> Last updated: 2026-03-26
+> Last updated: 2026-03-27
 > Status key: `[ ]` pending · `[~]` in progress · `[x]` done · `[-]` blocked · `[?]` needs investigation
 
 ---
@@ -8,34 +8,35 @@
 ## Tier 1 — Data (unblocks workflow nodes)
 
 ### G1 · Node 6: Line-item quantities + unit prices
-> Probe confirmed (2026-03-27): no "Reports 1.1/2.1" as separate endpoints exist.
-> Only 11 DA controllers exist. SC has a `CE_DA_SC_LINES_CONTROLLER.java` (CSV only — JSON unconfirmed).
-> Must probe `CE_DA_SC_LINES_CONTROLLER_JSON` and inspect full DC JSON fields before implementing.
+> **BLOCKED at data layer** (2026-03-27): `CE_DA_SC_LINES_CONTROLLER_JSON` returns 404 — no JSON line-item endpoint exists.
+> DC report probed: has richer fields (TIPO_PROCEDIMIENTO, FECHA_APERTURA, EXCEPCION_CD, NOMBRE_UNIDAD_COMPRA, FECHA_CIERRE_RECEPCION) but no line-level data.
+> No DA controller provides line-item quantities. Node 6 requires an alternative data source.
 
 - [x] Confirm controller map via live JS parse of JSP page — see `memory/reference_da_controllers.md`
-- [?] Probe `CE_DA_SC_LINES_CONTROLLER_JSON` — does a JSON line-item endpoint exist?
-- [?] Inspect full DC JSON record fields — do they include line-level data beyond `MODALIDAD_PROCEDIMIENTO`?
-- [ ] Based on probe result: design `lineas_cartel` table schema
-- [ ] Create migration `010_lineas_cartel.sql`
-- [ ] Add confirmed `fetch_report` config entry to `datos_abiertos.py`
-- [ ] Add parser + upserter (TDD)
-- [ ] Wire into `run_datos_abiertos`
-- [ ] Update `types.ts` — add `LineaCartel` type
-- [ ] Update Node 6 in `page.tsx` — show line table when data present
+- [x] Probe `CE_DA_SC_LINES_CONTROLLER_JSON` — **404, does not exist**
+- [x] Inspect full DC JSON record fields — procedure-level only, no line items
+- [-] Design `lineas_cartel` table schema — blocked, no data source
+- [-] Create migration, parser, upserter, frontend — all blocked
+- [?] Alternative: DA C or OP controllers may have line-level data — unprobed
 
-### G2 · Node 12: Competitor pricing + price history
-> DA Reports 1.1/2.1 labels were wrong — real report is `CE_DA_AF_CONTROLLER_JSON` (Adjudicaciones en firme).
-> This is confirmed from live JS parse (2026-03-27).
+### G2 · Node 12: Competitor pricing + adjudication status
+> AF probe complete (2026-03-27). AF report has 3 interleaved schemas in a flat array:
+> - HEADER (1529 records): NUMERO_PROCEDIMIENTO + adjudication dates — **joinable, implemented**
+> - PARTIDA (90 records): NUMERO_PARTIDA → 30 procedures, CANTIDAD_SOLICITADA appears to be supplier cedula
+> - PRICING (151 records): CEDULA_PROVEEDOR + PRECIO_UNITARIO_ADJUDICADO + NRO_ACTO — **NRO_ACTO has no join key to procedures (0 overlap with NRO_SICOP)**
+> Competitor pricing per procedure is NOT feasible from AF data. Adjudication dates ARE feasible and implemented.
 
-- [x] Confirm controller name — `CE_DA_AF_CONTROLLER_JSON` with params `bgnYmdAF`, `endYmdAF`, `instCdAF`, `instNmAF`
-- [ ] Probe AF JSON to confirm field names (adjudicated supplier, amount, lines)
-- [ ] Create migration for `precios_historicos` (if schema changes needed)
-- [ ] Add `AF` to `REPORT_CONFIGS` in `datos_abiertos.py`
-- [ ] Add `parse_af_record` parser (TDD)
-- [ ] Add `upsert_precios_historicos` upserter (TDD)
-- [ ] Wire into `run_datos_abiertos`
-- [ ] Frontend Node 12: price history table + competitor list from `da_ofertas`
-- [ ] Frontend Node 12: query `precios_historicos` for prior awards on same UNSPSC
+- [x] Confirm controller name — `CE_DA_AF_CONTROLLER_JSON`
+- [x] Probe AF JSON — 1770 records, 3 schemas, PRICING section has no procedure join key
+- [x] Migration `010_adjudicaciones_columns.sql` — adds `fecha_adj_firme TIMESTAMPTZ`, `desierto BOOLEAN` to `licitaciones_medicas`
+- [x] Add `AF` to `REPORT_CONFIGS` in `datos_abiertos.py`
+- [x] Add `parse_af_record` parser (TDD) — parses HEADER schema only, skips PRICING/PARTIDA
+- [x] Add `upsert_adjudicaciones` upserter (TDD) — patches licitaciones_medicas on instcartelno
+- [x] Wire into `run_datos_abiertos` — stats now include `"adjudicaciones": int`
+- [-] `precios_historicos` table — blocked, AF PRICING section has no procedure join key
+- [ ] Frontend Node 12: show `fecha_adj_firme` + `desierto` status
+- [ ] Frontend Node 12: competitor list from `da_ofertas` (suppliers who bid)
+- [?] Alternative pricing source: DA C (contratos) or OP controllers may have awarded amounts per procedure
 
 ### G3 · Node 3 coverage gap
 > DC report returns `MODALIDAD_PROCEDIMIENTO` for only ~15% of records
@@ -80,14 +81,15 @@
 ## Tier 3 — Quality / Tech debt
 
 ### G7 · Stale ETL test suite
-> `test_classifier.py` and `test_parser.py` fail on import; calibrated against v1, classifier is v3.10
+> Fixed 2026-03-27. All 85 tests passing (excl. test_fetcher.py which needs `respx`).
 
-- [ ] Audit what changed between classifier v1 and v3.10
-- [ ] Rewrite `test_classifier.py` against current `KEYWORDS_*` sets and `clasificar_licitacion` signature
-- [ ] Rewrite `test_parser.py` against current `parse_*` field names
-- [ ] Rewrite `test_main.py` against current flow (dias_atras, output shape)
-- [ ] Rewrite `test_uploader.py` against current field names (`instcartelno` not `numero_procedimiento`)
-- [ ] Target: `python -m pytest tests/ -v` → 0 failures
+- [x] Audit what changed between classifier v1 and v3.12
+- [x] Rewrite `test_classifier.py` — fixed `KEYWORDS_MEDICOS` → `KEYWORDS_DIRECTOS_RAW`, fixed 3 broken assertions (19 tests)
+- [x] Rewrite `test_parser.py` — removed pandas-dependent legacy tests, 13 new `parse_batch` tests against current schema
+- [x] Rewrite `test_main.py` — fixed `dias_atras` default, added `run_datos_abiertos` mock (8 tests)
+- [x] Rewrite `test_uploader.py` — fixed `on_conflict` key, mock chain, error-swallowing, env var message (15 tests)
+- [x] `conftest.py` — added stubs for `supabase`, `pandas`, `dotenv` (not installed in test env)
+- [x] Target: `python3 -m pytest tests/ -v` → **85/85 passing**
 
 ### G8 · Node 7: use `presupuesto_estimado` over `monto_colones`
 > WhatsApp spec sheet currently uses `monto_colones` (awarded amount, post-adjudication)
@@ -117,6 +119,9 @@
 
 ## Completed
 
+- [x] **G7 stale tests** — 85/85 passing; conftest stubs supabase/pandas/dotenv · 2026-03-27
+- [x] **G2 partial — AF adjudication dates** — `fecha_adj_firme` + `desierto` on `licitaciones_medicas`; migration 010 · 2026-03-27
+- [x] **G1 probe** — SC_LINES_JSON 404 (no JSON line-item endpoint); DC fields mapped (procedure-level only) · 2026-03-27
 - [x] **DA SC report** — `presupuesto_estimado` + `moneda_presupuesto` extracted and patched (4,664 rows) · 2026-03-26
 - [x] **DA DC report** — `modalidad_participacion` extracted and patched · 2026-03-26
 - [x] **DA O report** — `da_ofertas` table populated (384 rows, 60-day backfill) · 2026-03-26

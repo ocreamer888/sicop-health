@@ -702,7 +702,64 @@ ETL volumes (90d): 4,407 pub / 16,428 adj / 11,549 mod = ~32,384 records backfil
 
 ---
 
-## 17. Endpoints Still to Map
+## 17. Datos Abiertos Servlet Layer
+
+**Confirmed via live JS parse of `CE_MOD_DATOSABIERTOSVIEW.jsp` (2026-03-27)**
+
+This is a **separate download layer** from the REST API above. It lives on the main JSP host, not `prod-api.sicop.go.cr`.
+
+### Base URL
+
+```
+https://www.sicop.go.cr/moduloPcont/servlet/cont/rp
+```
+
+Referer required: `https://www.sicop.go.cr/moduloPcont/pcont/rp/CE_MOD_DATOSABIERTOSVIEW.jsp`
+
+### Two-Step Download Protocol
+
+```
+Step 1: POST {base}/{controller}.java
+        Content-Type: application/x-www-form-urlencoded
+        Body: {date_from}=DDMMYYYY & {date_to}=DDMMYYYY & {inst_cd}=CEDULA & {inst_nm}= & cmd=create
+        Response: plain-text ZIP filename token (e.g. "Solicitud de contratac 1774514981965.zip")
+
+Step 2: GET {base}/{controller}.java?cmd=download&fileZipName={token}
+        Response: ZIP archive containing one JSON file (direct array, no wrapper)
+```
+
+- **Date format:** DDMMYYYY (e.g. `01032026` for 2026-03-01)
+- **Max date range:** 183 days (6 months) — enforced by SICOP JS validation
+- **Empty `inst_cd`** = all institutions
+- **CCSS cédula in DA:** `4000042147` (different from REST API `0031700001`)
+
+### Confirmed Controller Map (all 11 — no others exist)
+
+| Key | JSON Controller | Date params | Inst params | ETL status |
+|-----|----------------|-------------|-------------|------------|
+| SC | `CE_DA_SC_CONTROLLER_JSON` | `bgnYmd`, `endYmd` | `instCdSC`, `instNmSC` | ✅ implemented |
+| DC | `CE_DA_DC_CONTROLLER_JSON` | `bgnYmdDC`, `endYmdDC` | `instCdDC`, `instNmDC` | ✅ implemented |
+| O | `CE_DA_O_CONTROLLER_JSON` | `bgnYmdO`, `endYmdO` | `instCdO`, `instNmO` | ✅ implemented |
+| AF | `CE_DA_AF_CONTROLLER_JSON` | `bgnYmdAF`, `endYmdAF` | `instCdAF`, `instNmAF` | planned (G2 — adjudicaciones) |
+| C | `CE_DA_C_CONTROLLER_JSON` | `bgnYmdC`, `endYmdC` | `instCdC`, `instNmC` | not yet |
+| OP | `CE_DA_OP_CONTROLLER_JSON` | `bgnYmdOP`, `endYmdOP` | `instCdOP`, `instNmOP` | not yet |
+| A | `CE_DA_A_CONTROLLER_JSON` | `bgnYmdA`, `endYmdA` | `instCdA`, `instNmA` | not yet |
+| R | `CE_DA_R_CONTROLLER_JSON` | `bgnYmdR`, `endYmdR` | `instCdR`, `instNmR` | not yet |
+| IC | `CE_DA_IC_CONTROLLER_JSON` | *(no date range)* | `instCdIC`, `instNmIC`, `provincias`, `cantones` | not yet |
+| P | `CE_DA_P_CONTROLLER_JSON` | *(no date/inst)* | `tamano` | not yet |
+| CB | `CE_DA_CB_CONTROLLER_JSON` | *(no date/inst)* | `cateId` | not yet |
+
+### SC Lines Anomaly
+
+The SC report's **CSV** format uses `CE_DA_SC_LINES_CONTROLLER.java` — NOT `CE_DA_SC_CONTROLLER_CSV.java` like every other report. This suggests a separate "lines" variant for SC exists. A JSON version (`CE_DA_SC_LINES_CONTROLLER_JSON`) is **unconfirmed** — probe before using.
+
+### ⚠️ Correction: No "Reports 1.1 / 2.1" endpoints
+
+The SICOP data dictionary labels (e.g. "Report 1.1 — Solicitudes de Contratación Líneas", "Report 2.1 — Directamente Contratados Líneas") are **sections of the data dictionary PDF**, not separate servlet endpoints. Only the 11 controllers listed above exist on the download page.
+
+---
+
+## 18. Endpoints Still to Map
 
 | Endpoint | Suspected Purpose | Next Step |
 |---|---|---|
@@ -740,12 +797,13 @@ ETL volumes (90d): 4,407 pub / 16,428 adj / 11,549 mod = ~32,384 records backfil
 ```
 sicop-health/
   services/etl/
-    fetcher.py          <- 3 endpoints, retry 3x, exponential backoff, timeout 45s
+    fetcher.py          <- 3 REST endpoints, retry 3x, exponential backoff, timeout 45s
     parser.py           <- v2.1: 7 new fields, robust monto regex, is_not_None fix
     classifier.py       <- v3.10: 18 new keywords, 12 new exclusions, Gap 6 + 00a0 fix
     uploader.py         <- v2.4: CAMPOS_BASE, KEEP_FALSY, exec_upsert helper, try/except
-    main.py             <- orchestrator: fetch -> parse -> classify -> upload
-    tests/              <- 118 tests (calibrated for v1 -- need update to v3.10)
+    main.py             <- orchestrator: fetch -> parse -> classify -> upload -> DA enrichment
+    datos_abiertos.py   <- DA servlet scraper: SC/DC/O reports, parsers, upserters
+    tests/              <- 20 DA tests passing; REST tests need update to v3.10
   supabase/migrations/
     001_initial_schema.sql   <- v1 CSV-era fields
     002_schema_v2.sql        <- REST API alignment (instcartelno, openbiddt, etc.)
@@ -753,4 +811,7 @@ sicop-health/
                                   modalidad, excepcioncd, biddocenddt, adjfirmedt,
                                   vigenciacontrato, unidadvigencia)
     004_instcode_esmedica.sql <- instcode + esmedica on licitacionesmodificaciones
+    009_datos_abiertos.sql   <- presupuesto_estimado, moneda_presupuesto,
+                                  modalidad_participacion on licitaciones_medicas;
+                                  da_ofertas table (offer history, FK → licitaciones_medicas)
 ```

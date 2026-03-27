@@ -2,9 +2,27 @@
 Pytest fixtures and configuration for ETL tests.
 """
 
+import sys
+from unittest.mock import MagicMock
+
+# Stub external packages not available in the test environment.
+# Must happen before any module that imports them is loaded.
+if "supabase" not in sys.modules:
+    _supabase_stub = MagicMock()
+    _supabase_stub.create_client = MagicMock(return_value=MagicMock())
+    sys.modules["supabase"] = _supabase_stub
+
+if "pandas" not in sys.modules:
+    sys.modules["pandas"] = MagicMock()
+
+if "dotenv" not in sys.modules:
+    _dotenv_stub = MagicMock()
+    _dotenv_stub.load_dotenv = lambda *a, **kw: None
+    sys.modules["dotenv"] = _dotenv_stub
+
 import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock
 
 
 # ============= Sample Data Fixtures =============
