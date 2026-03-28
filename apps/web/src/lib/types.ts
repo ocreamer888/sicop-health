@@ -143,6 +143,8 @@ export type LicitacionPreview = Pick<
   | "tipo_procedimiento" // para TIPO_LABELS en list view
   | "monto_colones"
   | "currency_type"      // para formatCurrency
+  | "presupuesto_estimado"
+  | "moneda_presupuesto"
   | "biddoc_start_dt"    // era fecha_tramite
   | "biddoc_end_dt"      // deadline — útil para badges de vencimiento
   | "estado"
