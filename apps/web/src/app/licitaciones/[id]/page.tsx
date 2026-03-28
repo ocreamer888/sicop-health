@@ -11,7 +11,7 @@ import { WorkflowProgress } from "@/components/workflow/WorkflowProgress"
 import { DeadlineCountdown } from "@/components/workflow/DeadlineCountdown"
 import { WhatsAppButton } from "@/components/workflow/WhatsAppButton"
 import { TIPO_LABELS } from "@/lib/types"
-import type { Licitacion, Categoria } from "@/lib/types"
+import type { Licitacion, Categoria, UserProfile } from "@/lib/types"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -66,9 +66,25 @@ async function getOfertas(instcartelno: string): Promise<DaOferta[]> {
   return (data ?? []) as DaOferta[]
 }
 
+async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .single()
+  return data as UserProfile | null
+}
+
 export default async function LicitacionDetailPage({ params }: PageProps) {
   const { id } = await params
-  const [l, ofertas] = await Promise.all([getLicitacion(id), getOfertas(id)])
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const [l, ofertas, profile] = await Promise.all([
+    getLicitacion(id),
+    getOfertas(id),
+    user ? getUserProfile(user.id) : Promise.resolve(null),
+  ])
   if (!l) notFound()
 
   const isPublicado = l.estado === "Publicado"
@@ -247,7 +263,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             <div className="space-y-3">
               <p className="text-sm text-[var(--color-text-muted)]">
                 Envía la especificación disponible a un fabricante vía WhatsApp.
-                {!l.monto_colones && (
+                {!l.monto_colones && !l.presupuesto_estimado && (
                   <span className="block mt-1 text-xs italic">
                     ⚠️ Monto no disponible aún — se incluirá al adjudicarse.
                   </span>
