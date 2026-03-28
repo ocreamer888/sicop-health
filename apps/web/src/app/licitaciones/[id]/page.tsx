@@ -45,6 +45,47 @@ function formatCurrency(amount: number | null, currency?: string | null): string
   return `${symbol}${amount.toLocaleString("es-CR")}`
 }
 
+// Maps onboarding institution codes → keywords to match against l.instnm
+const INST_KEYWORDS: Record<string, string[]> = {
+  CCSS:       ["CAJA COSTARRICENSE"],
+  Hospitales: ["HOSPITAL"],
+  INS:        ["INSTITUTO NACIONAL DE SEGUROS"],
+  MS:         ["MINISTERIO DE SALUD"],
+  Todas:      [], // empty = wildcard
+}
+
+type EligibilityResult =
+  | { ok: true }
+  | { ok: false; reasons: string[] }
+  | { ok: null; reason: "no_profile" | "precal" }
+
+function checkEligibility(l: Licitacion, profile: UserProfile | null): EligibilityResult {
+  if (!profile) return { ok: null, reason: "no_profile" }
+  if (l.modalidad_participacion === "Precalificación") return { ok: null, reason: "precal" }
+
+  const reasons: string[] = []
+
+  if (l.categoria && profile.categorias.length > 0 && !profile.categorias.includes(l.categoria)) {
+    reasons.push(`Categoría ${categoriaLabels[l.categoria as Categoria] ?? l.categoria} no está en tu perfil`)
+  }
+
+  const hasWildcard = profile.instituciones.includes("Todas")
+  if (!hasWildcard && profile.instituciones.length > 0 && l.instnm) {
+    const instUpper = l.instnm.toUpperCase()
+    const matched = profile.instituciones.some(code => {
+      const kws = INST_KEYWORDS[code]
+      return kws !== undefined && (kws.length === 0 || kws.some(kw => instUpper.includes(kw)))
+    })
+    if (!matched) reasons.push(`${l.instnm} no está entre tus instituciones objetivo`)
+  }
+
+  if (profile.monto_min && l.presupuesto_estimado && l.presupuesto_estimado < profile.monto_min) {
+    reasons.push(`Presupuesto ${formatCurrency(l.presupuesto_estimado, l.moneda_presupuesto)} está por debajo de tu mínimo configurado`)
+  }
+
+  return reasons.length > 0 ? { ok: false, reasons } : { ok: true }
+}
+
 async function getLicitacion(id: string): Promise<Licitacion | null> {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -90,17 +131,12 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
   const isPublicado = l.estado === "Publicado"
   const tipoLabel = TIPO_LABELS[l.tipo_procedimiento ?? ""] ?? l.tipo_procedimiento ?? "N/A"
 
-  // WorkflowProgress: count active/partial nodes among 1–6
-  // Node 1 always active (instnm always present)
-  // Node 2 always pendiente (gap)
-  // Node 3 always pendiente (gap)
-  // Node 4 always pendiente (depends on node 3)
-  // Node 5 partial if biddoc_end_dt present
-  // Node 6 always pendiente (gap)
-  // Nodes 1–6 with data: 1 always, 2 if budget, 3 if modalidad known, 5 if deadline
+  const elig = checkEligibility(l, profile)
+
   const completedNodes = 1
     + (l.presupuesto_estimado ? 1 : 0)
     + (l.modalidad_participacion ? 1 : 0)
+    + (elig.ok === true ? 1 : 0)
     + (l.biddoc_end_dt ? 1 : 0)
 
   return (
@@ -223,9 +259,47 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
           })()}
 
           {/* Node 4 — Elegibilidad */}
-          <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status="pendiente">
-            Pendiente: depende del Nodo 3 — se habilitará cuando se conozca el tipo de participación
-          </WorkflowNode>
+          {(() => {
+            const node4Status = elig.ok === null && elig.reason === "precal"
+              ? "blocked"
+              : elig.ok === true
+                ? "active"
+                : elig.ok === false
+                  ? "partial"
+                  : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status={node4Status}>
+                {elig.ok === null && elig.reason === "no_profile" ? (
+                  <>
+                    Completa tu perfil para evaluar compatibilidad con esta licitación.{" "}
+                    <Link href="/auth/onboarding" className="text-[#84a584] underline underline-offset-2">
+                      Completar perfil
+                    </Link>
+                  </>
+                ) : elig.ok === null && elig.reason === "precal" ? (
+                  "Pre-calificación requerida — verifica si tu empresa está registrada en el registro de proveedores de SICOP."
+                ) : elig.ok === true ? (
+                  <div className="rounded-[16px] bg-[#2c3833] p-4">
+                    <p className="text-sm font-medium text-[#84a584]">✓ Perfil compatible con esta licitación</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                      Categoría, institución y presupuesto dentro de tus parámetros
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(elig as { ok: false; reasons: string[] }).reasons.map((r, i) => (
+                      <div key={i} className="rounded-[16px] border border-[#b5a88a]/30 bg-[#b5a88a]/10 px-4 py-3">
+                        <p className="text-sm text-[#b5a88a]">⚠️ {r}</p>
+                      </div>
+                    ))}
+                    <p className="text-xs text-[var(--color-text-muted)] pt-1">
+                      Puedes continuar si consideras que aplicas — estas son sugerencias basadas en tu perfil.
+                    </p>
+                  </div>
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Node 5 — Tiempo para fabricar */}
           <WorkflowNode
