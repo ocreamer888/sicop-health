@@ -329,11 +329,11 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
           {/* Node 6 — Cantidades y precios */}
           <WorkflowNode nodeNumber={6} label="Cantidades y Precios por Línea" status="pendiente">
-            Pendiente: requiere líneas de cartel (CE_MOD_DATOSABIERTOSVIEW.jsp, Reportes 1.1 / 2.1)
+            Pendiente: datos de líneas de cartel no disponibles en Datos Abiertos aún
           </WorkflowNode>
 
           {/* Node 7 — Contactar fabricante */}
-          <WorkflowNode nodeNumber={7} label="Contactar Fabricante" status="partial">
+          <WorkflowNode nodeNumber={7} label="Contactar Fabricante" status="active">
             <div className="space-y-3">
               <p className="text-sm text-[var(--color-text-muted)]">
                 Envía la especificación disponible a un fabricante vía WhatsApp.
@@ -358,7 +358,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
           {/* Node 8-9 — Margen y Dossier */}
           <WorkflowNode nodeNumber="8–9" label="Margen de Negocio y Solicitud de Dossier" status="pendiente">
-            Proceso externo — el fabricante provee dossier completo (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días.
+            Proceso externo: solicita dossier completo al fabricante (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días hábiles.
           </WorkflowNode>
 
           {/* Node 10 — Riesgo dossier */}
@@ -381,7 +381,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
           {/* Node 11 — Registro */}
           <WorkflowNode nodeNumber={11} label="Presentación a Registro" status="pendiente">
-            Proceso externo ante el Ministerio de Salud. Una vez recibido el dossier del fabricante.
+            Proceso externo ante el Ministerio de Salud. Se inicia una vez recibido y validado el dossier del fabricante.
           </WorkflowNode>
 
           {/* Node 12 — Participación y Adjudicación */}
