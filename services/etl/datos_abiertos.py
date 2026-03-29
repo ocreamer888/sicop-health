@@ -517,37 +517,50 @@ def parse_op_record(r: dict) -> dict | None:
 
 # ─── Upserters ────────────────────────────────────────────────────────────────
 
-_SCALAR_FIELDS = {"presupuesto_estimado", "moneda_presupuesto", "modalidad_participacion"}
+_SC_FIELDS  = {"presupuesto_estimado", "moneda_presupuesto"}
+_DC_FIELDS  = {"modalidad_participacion"}
 
 
-def upsert_scalar_enrichments(rows: list[dict], supabase_client) -> int:
-    """
-    Patch scalar DA fields onto licitaciones_medicas via upsert.
-    Merges SC and DC rows by instcartelno; never writes None values.
-    """
-    if not rows:
-        return 0
-
+def _merge_by_instcartelno(rows: list[dict], fields: set) -> list[dict]:
+    """Merge rows keeping only `fields`; skip rows where all field values are None."""
     merged: dict[str, dict] = {}
     for row in rows:
         key = row.get("instcartelno")
         if not key:
             continue
-        patch = {k: v for k, v in row.items() if k in _SCALAR_FIELDS and v is not None}
+        patch = {k: v for k, v in row.items() if k in fields and v is not None}
         if patch:
             merged.setdefault(key, {"instcartelno": key}).update(patch)
+    return list(merged.values())
 
-    records = list(merged.values())
-    if not records:
-        return 0
 
-    (
-        supabase_client.table("licitaciones_medicas")
-        .upsert(records, on_conflict="instcartelno")
-        .execute()
-    )
-    logger.info("DA scalar: %d rows patched", len(records))
-    return len(records)
+def upsert_scalar_enrichments(sc_rows: list[dict], dc_rows: list[dict], supabase_client) -> int:
+    """
+    Patch scalar DA fields onto licitaciones_medicas.
+
+    SC fields (presupuesto_estimado, moneda_presupuesto) and DC fields
+    (modalidad_participacion) are upserted in SEPARATE batches so that a DC
+    record that lacks presupuesto_estimado can never overwrite an existing
+    budget value with NULL.
+    """
+    total = 0
+
+    sc_records = _merge_by_instcartelno([r for r in sc_rows if r], _SC_FIELDS)
+    if sc_records:
+        supabase_client.table("licitaciones_medicas").upsert(
+            sc_records, on_conflict="instcartelno"
+        ).execute()
+        total += len(sc_records)
+
+    dc_records = _merge_by_instcartelno([r for r in dc_rows if r], _DC_FIELDS)
+    if dc_records:
+        supabase_client.table("licitaciones_medicas").upsert(
+            dc_records, on_conflict="instcartelno"
+        ).execute()
+        total += len(dc_records)
+
+    logger.info("DA scalar: %d rows patched (sc=%d dc=%d)", total, len(sc_records), len(dc_records))
+    return total
 
 
 def upsert_ofertas(rows: list[dict], supabase_client) -> int:
@@ -595,10 +608,9 @@ def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
 
 def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
     """
-    Insert pricing rows into precios_historicos.
-    Uses INSERT (not upsert) — no dedup unique key on the table.
+    Replace pricing rows for the current batch's instcartelnos + fuente, then re-insert.
+    Targeted delete by instcartelno (indexed) avoids full-table scans.
     Skips rows where descripcion_item is "" AND precio_unitario is None.
-    Returns count of rows inserted.
     """
     valid = [
         r for r in rows
@@ -608,13 +620,30 @@ def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
     ]
     if not valid:
         return 0
+    # Deduplicate within the batch by unique key (same tuple can appear twice in AF/C data)
+    seen: set[tuple] = set()
+    deduped = []
+    for r in valid:
+        key = (r.get("instcartelno"), r.get("proveedor"), r.get("fuente"), r.get("precio_unitario"), r.get("cantidad"))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+    valid = deduped
+
+    fuente = valid[0].get("fuente")
+    instcartelnos = list({r["instcartelno"] for r in valid})
+    # Delete existing rows for these procedures + fuente in chunks to avoid URL length limits
+    chunk_size = 100
+    for i in range(0, len(instcartelnos), chunk_size):
+        chunk = instcartelnos[i : i + chunk_size]
+        supabase_client.table("precios_historicos").delete().eq("fuente", fuente).in_("instcartelno", chunk).execute()
     supabase_client.table("precios_historicos").insert(valid).execute()
-    logger.info("DA precios: %d rows inserted", len(valid))
+    logger.info("DA precios: %d rows inserted (fuente=%s, procedures=%d)", len(valid), fuente, len(instcartelnos))
     return len(valid)
 
 
 def upsert_recursos(rows: list[dict], supabase_client) -> int:
-    """Insert appeal/resource rows into da_recursos. Dedup by (instcartelno, cedula_proveedor, fecha_solicitud)."""
+    """Replace recursos rows for current batch's instcartelnos, then re-insert."""
     valid = [r for r in rows if r and r.get("instcartelno")]
     if not valid:
         return 0
@@ -623,13 +652,18 @@ def upsert_recursos(rows: list[dict], supabase_client) -> int:
         key = (r["instcartelno"], r.get("cedula_proveedor"), r.get("fecha_solicitud"))
         seen[key] = r
     valid = list(seen.values())
+    instcartelnos = list({r["instcartelno"] for r in valid})
+    chunk_size = 100
+    for i in range(0, len(instcartelnos), chunk_size):
+        chunk = instcartelnos[i : i + chunk_size]
+        supabase_client.table("da_recursos").delete().in_("instcartelno", chunk).execute()
     supabase_client.table("da_recursos").insert(valid).execute()
     logger.info("DA recursos: %d rows inserted", len(valid))
     return len(valid)
 
 
 def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
-    """Insert clarification rows into da_aclaraciones. Dedup by (instcartelno, fecha_solicitud, solicitante)."""
+    """Replace aclaraciones rows for current batch's instcartelnos, then re-insert."""
     valid = [r for r in rows if r and r.get("instcartelno")]
     if not valid:
         return 0
@@ -638,6 +672,11 @@ def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
         key = (r["instcartelno"], r.get("fecha_solicitud"), r.get("solicitante"))
         seen[key] = r
     valid = list(seen.values())
+    instcartelnos = list({r["instcartelno"] for r in valid})
+    chunk_size = 100
+    for i in range(0, len(instcartelnos), chunk_size):
+        chunk = instcartelnos[i : i + chunk_size]
+        supabase_client.table("da_aclaraciones").delete().in_("instcartelno", chunk).execute()
     supabase_client.table("da_aclaraciones").insert(valid).execute()
     logger.info("DA aclaraciones: %d rows inserted", len(valid))
     return len(valid)
@@ -888,9 +927,7 @@ async def run_datos_abiertos(
     dc_rows = [parse_dc_record(r) for r in dc_raw]
 
     if supabase_client:
-        stats["scalar"] = upsert_scalar_enrichments(
-            [r for r in sc_rows + dc_rows if r], supabase_client
-        )
+        stats["scalar"] = upsert_scalar_enrichments(sc_rows, dc_rows, supabase_client)
 
     # O — offer history (Node 12)
     o_raw = await fetch_report("O", d_from, d_to)
