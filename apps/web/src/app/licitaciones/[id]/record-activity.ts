@@ -1,32 +1,47 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { calcStreak } from "@/lib/gamification";
+import { calcStreak, calcIntelScore } from "@/lib/gamification";
 
-export async function recordLicitacionView(instcartelno: string, instCode: string | null, biddocStartDt: string | null) {
+export async function recordLicitacionView(
+  instcartelno: string,
+  _instCode: string | null,
+  biddocStartDt: string | null,
+  instnm: string | null,
+) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
   const today = new Date().toISOString().split("T")[0];
 
-  // 1. Record activity (upsert — ignore duplicate)
-  await supabase.from("user_activity").upsert(
-    { user_id: user.id, activity_date: today },
-    { onConflict: "user_id,activity_date" }
-  );
+  // 1. Record activity day (for streak) and licitacion view (for ccss_specialist)
+  await Promise.all([
+    supabase.from("user_activity").upsert(
+      { user_id: user.id, activity_date: today },
+      { onConflict: "user_id,activity_date" }
+    ),
+    supabase.from("licitaciones_vistas").upsert(
+      { user_id: user.id, instcartelno, instnm },
+      { onConflict: "user_id,instcartelno" }
+    ),
+  ]);
 
-  // 2. Fetch data needed for badge evaluation
+  // 2. Fetch data needed for badge evaluation (parallel)
   const [
     { data: existingBadges },
     { data: activityRows },
     { count: totalViews },
     { data: profile },
+    { count: ccssViews },
   ] = await Promise.all([
     supabase.from("user_badges").select("badge_id").eq("user_id", user.id),
     supabase.from("user_activity").select("activity_date").eq("user_id", user.id).order("activity_date", { ascending: false }),
     supabase.from("user_activity").select("*", { count: "exact", head: true }).eq("user_id", user.id),
     supabase.from("user_profiles").select("*").eq("user_id", user.id).single(),
+    supabase.from("licitaciones_vistas").select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .ilike("instnm", "%CAJA COSTARRICENSE%"),
   ]);
 
   const earnedIds = new Set(existingBadges?.map(b => b.badge_id) ?? []);
@@ -48,9 +63,13 @@ export async function recordLicitacionView(instcartelno: string, instCode: strin
   if (!earnedIds.has("streak_7") && streak >= 7) newBadges.push("streak_7");
   if (!earnedIds.has("streak_30") && streak >= 30) newBadges.push("streak_30");
 
-  // intel_pro: check if score is 100
+  // ccss_specialist: 20+ distinct CCSS licitaciones viewed
+  if (!earnedIds.has("ccss_specialist") && (ccssViews ?? 0) >= 20) {
+    newBadges.push("ccss_specialist");
+  }
+
+  // intel_pro: score is 100
   if (!earnedIds.has("intel_pro") && profile) {
-    const { calcIntelScore } = await import("@/lib/gamification");
     const score = calcIntelScore(profile, totalViews ?? 0);
     if (score >= 100) newBadges.push("intel_pro");
   }
@@ -62,5 +81,5 @@ export async function recordLicitacionView(instcartelno: string, instCode: strin
     );
   }
 
-  return newBadges[0] ?? null; // return first new badge for toast display
+  return newBadges[0] ?? null;
 }
