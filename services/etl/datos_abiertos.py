@@ -966,6 +966,28 @@ async def run_datos_abiertos(
         "precios": 0, "contratos": 0, "recursos": 0, "aclaraciones": 0, "ordenes": 0,
     }
 
+    # Fetch known procedures once via pagination — prevents FK / NOT-NULL violations
+    # on non-medical or not-yet-imported procedures across all writer calls.
+    known_set: set[str] | None = None
+    if supabase_client:
+        _page_size = 1000
+        _page = 0
+        _known: set[str] = set()
+        while True:
+            resp = (
+                supabase_client.table("licitaciones_medicas")
+                .select("instcartelno")
+                .range(_page * _page_size, (_page + 1) * _page_size - 1)
+                .execute()
+            )
+            batch = resp.data or []
+            _known.update(r["instcartelno"] for r in batch)
+            if len(batch) < _page_size:
+                break
+            _page += 1
+        known_set = _known
+        logger.info("DA known_set: %d tracked procedures", len(known_set))
+
     # SC — presupuesto_estimado + moneda_presupuesto
     sc_raw = await fetch_report("SC", d_from, d_to)
     sc_rows = [parse_sc_record(r) for r in sc_raw]
@@ -975,15 +997,12 @@ async def run_datos_abiertos(
     dc_rows = [parse_dc_record(r) for r in dc_raw]
 
     if supabase_client:
-        stats["scalar"] = upsert_scalar_enrichments(sc_rows, dc_rows, supabase_client)
+        stats["scalar"] = upsert_scalar_enrichments(sc_rows, dc_rows, supabase_client, known_set=known_set)
 
     # O — offer history (Node 12)
     o_raw = await fetch_report("O", d_from, d_to)
     o_rows = [parse_oferta_record(r) for r in o_raw]
     if supabase_client:
-        # Filter to instcartelnos we actually track — FK constraint on da_ofertas
-        known_resp = supabase_client.table("licitaciones_medicas").select("instcartelno").limit(50000).execute()
-        known_set = {r["instcartelno"] for r in (known_resp.data or [])}
         valid_o = [r for r in o_rows if r and r.get("instcartelno") in known_set]
         logger.info("DA O: %d total offers → %d match tracked procedures", len(o_rows), len(valid_o))
         stats["ofertas"] = upsert_ofertas(valid_o, supabase_client)
@@ -1004,7 +1023,7 @@ async def run_datos_abiertos(
                 af_pricing_rows.append(pricing)
     if supabase_client:
         valid_af = [r for r in af_rows if r]
-        stats["adjudicaciones"] = upsert_adjudicaciones(valid_af, supabase_client)
+        stats["adjudicaciones"] = upsert_adjudicaciones(valid_af, supabase_client, known_set=known_set)
         stats["precios"] = upsert_precios_historicos(af_pricing_rows, supabase_client)
 
     # C — contract line prices (G10)

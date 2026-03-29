@@ -1239,3 +1239,57 @@ async def test_fetch_instituciones_compradoras_skips_without_nombre():
         count = await fetch_instituciones_compradoras(mock_sb)
 
     assert count == 0
+
+
+# ── run_datos_abiertos known_set reuse ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_datos_abiertos_scalar_filters_unknown_procedures():
+    """
+    SC rows whose instcartelno is not in licitaciones_medicas must NOT reach
+    the upsert call — otherwise FK / NOT-NULL constraints blow up in prod.
+    """
+    from datos_abiertos import run_datos_abiertos
+
+    KNOWN = "2026CD-001-KNOWN"
+    UNKNOWN = "2026CD-999-NOTINDB"
+
+    # Minimal raw SC rows — one known, one unknown
+    # parse_sc_record reads NUMERO_PROCEDIMIENTO (not INST_CARTEL_NO)
+    sc_raw = [
+        {"NUMERO_PROCEDIMIENTO": KNOWN,   "PRESUPUESTO": "1000", "MONEDA": "CRC"},
+        {"NUMERO_PROCEDIMIENTO": UNKNOWN, "PRESUPUESTO": "2000", "MONEDA": "USD"},
+    ]
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.select.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    mock_table.range.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.delete.return_value = mock_table
+    mock_table.eq.return_value = mock_table
+    mock_table.in_.return_value = mock_table
+
+    # DB returns only KNOWN as a tracked procedure
+    mock_table.execute.return_value = MagicMock(data=[{"instcartelno": KNOWN}])
+
+    def fetch_side_effect(report_type, *args, **kwargs):
+        return sc_raw if report_type == "SC" else []
+
+    with patch("datos_abiertos.fetch_report", new_callable=AsyncMock, side_effect=fetch_side_effect):
+        await run_datos_abiertos(dias=30, supabase_client=mock_sb)
+
+    # Collect all rows passed to any upsert on licitaciones_medicas
+    upsert_rows = []
+    for call in mock_table.upsert.call_args_list:
+        rows = call[0][0] if call[0] else call[1].get("json", [])
+        if isinstance(rows, list):
+            upsert_rows.extend(rows)
+
+    upserted_keys = {r.get("instcartelno") for r in upsert_rows if isinstance(r, dict)}
+    assert UNKNOWN not in upserted_keys, (
+        f"Unknown procedure {UNKNOWN!r} reached the DB upsert — known_set not applied to scalar"
+    )
