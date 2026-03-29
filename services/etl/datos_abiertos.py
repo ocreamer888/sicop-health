@@ -581,13 +581,17 @@ def upsert_ofertas(rows: list[dict], supabase_client) -> int:
     valid = list(seen.values())
     if not valid:
         return 0
-    (
-        supabase_client.table("da_ofertas")
-        .upsert(valid, on_conflict="instcartelno,suppliercd")
-        .execute()
-    )
-    logger.info("DA ofertas: %d rows upserted", len(valid))
-    return len(valid)
+    try:
+        (
+            supabase_client.table("da_ofertas")
+            .upsert(valid, on_conflict="instcartelno,suppliercd")
+            .execute()
+        )
+        logger.info("DA ofertas: %d rows upserted", len(valid))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA ofertas upsert failed: %s", e)
+        return 0
 
 
 def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
@@ -603,13 +607,17 @@ def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
     for r in valid:
         seen[r["instcartelno"]] = r
     valid = list(seen.values())
-    (
-        supabase_client.table("licitaciones_medicas")
-        .upsert(valid, on_conflict="instcartelno")
-        .execute()
-    )
-    logger.info("DA adjudicaciones: %d rows patched", len(valid))
-    return len(valid)
+    try:
+        (
+            supabase_client.table("licitaciones_medicas")
+            .upsert(valid, on_conflict="instcartelno")
+            .execute()
+        )
+        logger.info("DA adjudicaciones: %d rows patched", len(valid))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA adjudicaciones upsert failed: %s", e)
+        return 0
 
 
 def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
@@ -697,9 +705,13 @@ def upsert_ordenes_pedido(rows: list[dict], supabase_client) -> int:
     for r in valid:
         seen[r["numero_orden"]] = r
     valid = list(seen.values())
-    supabase_client.table("da_ordenes_pedido").upsert(valid, on_conflict="numero_orden").execute()
-    logger.info("DA ordenes_pedido: %d rows upserted", len(valid))
-    return len(valid)
+    try:
+        supabase_client.table("da_ordenes_pedido").upsert(valid, on_conflict="numero_orden").execute()
+        logger.info("DA ordenes_pedido: %d rows upserted", len(valid))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA ordenes_pedido upsert failed: %s", e)
+        return 0
 
 
 # ─── Catalog fetchers (no date range — static reference data) ────────────────

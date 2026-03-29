@@ -277,6 +277,19 @@ def test_upsert_ofertas_skips_rows_without_suppliercd():
     assert call_args[0]["suppliercd"] == "123"
 
 
+def test_upsert_ofertas_returns_zero_on_db_error():
+    from datos_abiertos import upsert_ofertas
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("FK violation")
+
+    rows = [{"instcartelno": "2026CD-001-0031700001", "suppliercd": "3101111111", "suppliernm": "Proveedor A"}]
+    result = upsert_ofertas(rows, mock_sb)
+    assert result == 0
+
+
 # ── run_datos_abiertos ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -430,6 +443,19 @@ def test_upsert_adjudicaciones_skips_rows_without_instcartelno():
     ]
     count = upsert_adjudicaciones(rows, mock_sb)
     assert count == 1
+
+
+def test_upsert_adjudicaciones_returns_zero_on_db_error():
+    from datos_abiertos import upsert_adjudicaciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("DB error")
+
+    rows = [{"instcartelno": "2026CD-001-0031700001", "fecha_adj_firme": "2026-03-01", "desierto": False}]
+    result = upsert_adjudicaciones(rows, mock_sb)
+    assert result == 0
 
 
 # ── parse_af_pricing_record ────────────────────────────────────────────────────
@@ -868,6 +894,19 @@ def test_upsert_ordenes_pedido_skips_rows_without_numero_orden():
 def test_upsert_ordenes_pedido_returns_zero_for_empty():
     from datos_abiertos import upsert_ordenes_pedido
     assert upsert_ordenes_pedido([], MagicMock()) == 0
+
+
+def test_upsert_ordenes_pedido_returns_zero_on_db_error():
+    from datos_abiertos import upsert_ordenes_pedido
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("DB error")
+
+    rows = [{"numero_orden": "OP-001", "instcartelno": "2026CD-001-0031700001"}]
+    result = upsert_ordenes_pedido(rows, mock_sb)
+    assert result == 0
 
 
 # ── parse_af_pricing_record fuente field ──────────────────────────────────────
