@@ -56,6 +56,34 @@ REPORT_CONFIGS: dict[str, dict] = {
         "inst_cd":    "instCdAF",
         "inst_nm":    "instNmAF",
     },
+    "C": {
+        "controller": "CE_DA_C_CONTROLLER_JSON",
+        "date_from":  "bgnYmdC",
+        "date_to":    "endYmdC",
+        "inst_cd":    "instCdC",
+        "inst_nm":    "instNmC",
+    },
+    "OP": {
+        "controller": "CE_DA_OP_CONTROLLER_JSON",
+        "date_from":  "bgnYmdOP",
+        "date_to":    "endYmdOP",
+        "inst_cd":    "instCdOP",
+        "inst_nm":    "instNmOP",
+    },
+    "A": {
+        "controller": "CE_DA_A_CONTROLLER_JSON",
+        "date_from":  "bgnYmdA",
+        "date_to":    "endYmdA",
+        "inst_cd":    "instCdA",
+        "inst_nm":    "instNmA",
+    },
+    "R": {
+        "controller": "CE_DA_R_CONTROLLER_JSON",
+        "date_from":  "bgnYmdR",
+        "date_to":    "endYmdR",
+        "inst_cd":    "instCdR",
+        "inst_nm":    "instNmR",
+    },
 }
 
 HEADERS = {
@@ -247,6 +275,242 @@ def parse_af_record(r: dict) -> dict | None:
     }
 
 
+def parse_af_pricing_record(r: dict, current_instcartelno: str | None) -> dict | None:
+    """
+    AF report → precios_historicos row.
+
+    PRICING records have CEDULA_PROVEEDOR or PRECIO_UNITARIO_ADJUDICADO but
+    no NUMERO_PROCEDIMIENTO and no NUMERO_PARTIDA. The caller is responsible
+    for passing the most recently seen HEADER's instcartelno.
+
+    Returns None if:
+      - current_instcartelno is None (no parent HEADER seen yet)
+      - row does not look like a PRICING record
+      - both precio_unitario and cantidad are None (no useful data)
+    """
+    if current_instcartelno is None:
+        return None
+    # Must not be a HEADER (has NUMERO_PROCEDIMIENTO) or PARTIDA (has NUMERO_PARTIDA)
+    if r.get("NUMERO_PROCEDIMIENTO") or r.get("NUMERO_PARTIDA"):
+        return None
+    # Must look like a PRICING record
+    if not (r.get("CEDULA_PROVEEDOR") or r.get("PRECIO_UNITARIO_ADJUDICADO")):
+        return None
+
+    # precio_unitario
+    raw_precio = r.get("PRECIO_UNITARIO_ADJUDICADO")
+    try:
+        precio_unitario = float(raw_precio) if raw_precio is not None else None
+    except (ValueError, TypeError):
+        precio_unitario = None
+
+    # cantidad
+    raw_cantidad = r.get("CANTIDAD_ADJUDICADA")
+    try:
+        cantidad = float(raw_cantidad) if raw_cantidad is not None else None
+    except (ValueError, TypeError):
+        cantidad = None
+
+    # Skip rows with no useful numeric data
+    if precio_unitario is None and cantidad is None:
+        return None
+
+    descripcion = (
+        r.get("DESCRIPCION")
+        or r.get("NOMBRE_PRODUCTO")
+        or r.get("DESCRIPCION_LINEA")
+        or ""
+    )
+
+    return {
+        "instcartelno":        current_instcartelno,
+        "descripcion_item":    descripcion,
+        "clasificacion_unspsc": r.get("CODIGO_IDENTIFICACION") or r.get("CODIGO_PRODUCTO") or None,
+        "proveedor":           r.get("NOMBRE_PROVEEDOR") or r.get("CEDULA_PROVEEDOR") or None,
+        "precio_unitario":     precio_unitario,
+        "cantidad":            cantidad,
+        "unidad":              r.get("UNIDAD_MEDIDA") or None,
+        "fuente":              "AF",
+        "rawdata":             r,
+    }
+
+
+# ─── Contratos (C) parsers ────────────────────────────────────────────────────
+
+def parse_c_record(r: dict) -> dict | None:
+    """
+    C report HEADER → instcartelno context for pricing sub-records.
+    HEADER records have NUMERO_PROCEDIMIENTO. Returns minimal dict with key only.
+    """
+    key = r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO")
+    if not key:
+        return None
+    return {"instcartelno": key}
+
+
+def parse_c_pricing_record(r: dict, current_instcartelno: str | None) -> dict | None:
+    """
+    C report line items (Report 7.2) → precios_historicos rows.
+
+    Line records have PRECIO_UNITARIO / CANTIDADCONTRATADA but no NUMERO_PROCEDIMIENTO.
+    The caller maintains current_instcartelno from the most-recent HEADER record.
+
+    Returns None if:
+      - current_instcartelno is None
+      - record is a HEADER (has NUMERO_PROCEDIMIENTO)
+      - no useful numeric data
+    """
+    if current_instcartelno is None:
+        return None
+    if r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO"):
+        return None  # Header row — not a pricing row
+
+    raw_precio = (
+        r.get("PRECIO_UNITARIO")
+        or r.get("PRECIOUNITARIO")
+        or r.get("precioUnitario")
+    )
+    try:
+        precio_unitario = float(raw_precio) if raw_precio is not None else None
+    except (ValueError, TypeError):
+        precio_unitario = None
+
+    raw_cantidad = (
+        r.get("CANTIDAD_CONTRATADA")
+        or r.get("CANTIDADCONTRATADA")
+        or r.get("cantidadContratada")
+    )
+    try:
+        cantidad = float(raw_cantidad) if raw_cantidad is not None else None
+    except (ValueError, TypeError):
+        cantidad = None
+
+    if precio_unitario is None and cantidad is None:
+        return None
+
+    descripcion = (
+        r.get("DESCRIPCION")
+        or r.get("NOMBRE_PRODUCTO")
+        or r.get("DESCRIPCION_LINEA")
+        or ""
+    )
+
+    return {
+        "instcartelno":        current_instcartelno,
+        "descripcion_item":    descripcion,
+        "clasificacion_unspsc": (
+            r.get("CODIGO_IDENTIFICACION")
+            or r.get("CODIGOIDENTIFICACION")
+            or None
+        ),
+        "proveedor":   r.get("NOMBRE_PROVEEDOR") or r.get("CEDULA_PROVEEDOR") or None,
+        "precio_unitario": precio_unitario,
+        "cantidad":    cantidad,
+        "unidad":      r.get("UNIDAD_MEDIDA") or r.get("UNIDAD") or None,
+        "fuente":      "C",
+        "rawdata":     r,
+    }
+
+
+# ─── Recursos (R) parser ──────────────────────────────────────────────────────
+
+def parse_r_record(r: dict) -> dict | None:
+    """R report → da_recursos row (appeals / protests per tender)."""
+    key = r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO")
+    if not key:
+        return None
+    return {
+        "instcartelno":    key,
+        "asunto":          r.get("ASUNTO") or r.get("asunto"),
+        "cedula_proveedor": (
+            r.get("CEDULA_PROVEEDOR")
+            or r.get("CEDULAPROVEEDOR")
+            or r.get("cedulaProveedor")
+        ),
+        "tipo_recurso":    (
+            r.get("TIPO_RECURSO")
+            or r.get("TIPORECURSO")
+            or r.get("tipoRecurso")
+        ),
+        "fecha_solicitud": (
+            r.get("FECHA_SOLICITUD")
+            or r.get("FECHASOLICITUD")
+            or r.get("fechaSolicitud")
+        ),
+        "rawdata":         r,
+    }
+
+
+# ─── Aclaraciones (A) parser ──────────────────────────────────────────────────
+
+def parse_a_record(r: dict) -> dict | None:
+    """A report → da_aclaraciones row (clarifications per tender)."""
+    key = r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO")
+    if not key:
+        return None
+    return {
+        "instcartelno":    key,
+        "titulo":          r.get("TITULO") or r.get("titulo"),
+        "fecha_solicitud": (
+            r.get("FECHA_SOLICITUD")
+            or r.get("FECHASOLICITUD")
+            or r.get("fechaSolicitud")
+        ),
+        "solicitante":     r.get("SOLICITANTE") or r.get("solicitante"),
+        "rawdata":         r,
+    }
+
+
+# ─── Órdenes de Pedido (OP) parser ───────────────────────────────────────────
+
+def parse_op_record(r: dict) -> dict | None:
+    """OP report → da_ordenes_pedido row (purchase execution)."""
+    numero_orden = (
+        r.get("NUMERO_ORDEN_PEDIDO")
+        or r.get("NUMEROORDENPEDIDO")
+        or r.get("numeroOrdenPedido")
+    )
+    if not numero_orden:
+        return None
+
+    key = r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO")
+
+    raw_precio = r.get("PRECIO_UNITARIO") or r.get("PRECIOUNITARIO")
+    try:
+        precio_unitario = float(raw_precio) if raw_precio is not None else None
+    except (ValueError, TypeError):
+        precio_unitario = None
+
+    raw_cantidad = r.get("CANTIDAD") or r.get("cantidad")
+    try:
+        cantidad = float(raw_cantidad) if raw_cantidad is not None else None
+    except (ValueError, TypeError):
+        cantidad = None
+
+    raw_monto = r.get("MONTO_TOTAL") or r.get("MONTOTOTAL") or r.get("montoTotal")
+    try:
+        monto_total = float(raw_monto) if raw_monto is not None else None
+    except (ValueError, TypeError):
+        monto_total = None
+
+    return {
+        "instcartelno":    key,  # nullable — OP may reference contract, not procedure
+        "numero_orden":    numero_orden,
+        "cedula_proveedor": (
+            r.get("CEDULA_PROVEEDOR")
+            or r.get("CEDULAPROVEEDOR")
+            or r.get("cedulaProveedor")
+        ),
+        "precio_unitario": precio_unitario,
+        "cantidad":        cantidad,
+        "unidad":          r.get("UNIDAD_MEDIDA") or r.get("UNIDAD") or None,
+        "monto_total":     monto_total,
+        "currencytype":    r.get("TIPO_MONEDA") or r.get("TIPOMONEDA") or None,
+        "fecha_orden":     r.get("FECHA_ORDEN") or r.get("FECHAORDEN") or None,
+        "rawdata":         r,
+    }
+
+
 # ─── Upserters ────────────────────────────────────────────────────────────────
 
 _SCALAR_FIELDS = {"presupuesto_estimado", "moneda_presupuesto", "modalidad_participacion"}
@@ -311,6 +575,11 @@ def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
     valid = [r for r in rows if r and r.get("instcartelno")]
     if not valid:
         return 0
+    # Deduplicate by instcartelno — AF can return multiple HEADER rows per procedure
+    seen: dict[str, dict] = {}
+    for r in valid:
+        seen[r["instcartelno"]] = r
+    valid = list(seen.values())
     (
         supabase_client.table("licitaciones_medicas")
         .upsert(valid, on_conflict="instcartelno")
@@ -318,6 +587,266 @@ def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
     )
     logger.info("DA adjudicaciones: %d rows patched", len(valid))
     return len(valid)
+
+
+def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
+    """
+    Insert pricing rows into precios_historicos.
+    Uses INSERT (not upsert) — no dedup unique key on the table.
+    Skips rows where descripcion_item is "" AND precio_unitario is None.
+    Returns count of rows inserted.
+    """
+    valid = [
+        r for r in rows
+        if r
+        and r.get("instcartelno")
+        and not (r.get("descripcion_item") == "" and r.get("precio_unitario") is None)
+    ]
+    if not valid:
+        return 0
+    supabase_client.table("precios_historicos").insert(valid).execute()
+    logger.info("DA precios: %d rows inserted", len(valid))
+    return len(valid)
+
+
+def upsert_recursos(rows: list[dict], supabase_client) -> int:
+    """Insert appeal/resource rows into da_recursos. Dedup by (instcartelno, cedula_proveedor, fecha_solicitud)."""
+    valid = [r for r in rows if r and r.get("instcartelno")]
+    if not valid:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in valid:
+        key = (r["instcartelno"], r.get("cedula_proveedor"), r.get("fecha_solicitud"))
+        seen[key] = r
+    valid = list(seen.values())
+    supabase_client.table("da_recursos").insert(valid).execute()
+    logger.info("DA recursos: %d rows inserted", len(valid))
+    return len(valid)
+
+
+def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
+    """Insert clarification rows into da_aclaraciones. Dedup by (instcartelno, fecha_solicitud, solicitante)."""
+    valid = [r for r in rows if r and r.get("instcartelno")]
+    if not valid:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in valid:
+        key = (r["instcartelno"], r.get("fecha_solicitud"), r.get("solicitante"))
+        seen[key] = r
+    valid = list(seen.values())
+    supabase_client.table("da_aclaraciones").insert(valid).execute()
+    logger.info("DA aclaraciones: %d rows inserted", len(valid))
+    return len(valid)
+
+
+def upsert_ordenes_pedido(rows: list[dict], supabase_client) -> int:
+    """Insert purchase order rows into da_ordenes_pedido. Dedup by numero_orden."""
+    valid = [r for r in rows if r and r.get("numero_orden")]
+    if not valid:
+        return 0
+    seen: dict[str, dict] = {}
+    for r in valid:
+        seen[r["numero_orden"]] = r
+    valid = list(seen.values())
+    supabase_client.table("da_ordenes_pedido").upsert(valid, on_conflict="numero_orden").execute()
+    logger.info("DA ordenes_pedido: %d rows upserted", len(valid))
+    return len(valid)
+
+
+# ─── Catalog fetchers (no date range — static reference data) ────────────────
+
+async def fetch_proveedores(supabase_client) -> int:
+    """
+    Fetch supplier catalog from CE_DA_P_CONTROLLER_JSON (Report 9).
+    Uses tamano="" to fetch all suppliers. No date params.
+    Upserts into `proveedores` table. Returns count upserted.
+    """
+    cfg = {
+        "controller": "CE_DA_P_CONTROLLER_JSON",
+        "inst_cd":    "tamano",
+    }
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        url = f"{SERVLET_BASE}/{cfg['controller']}.java"
+        params = {"tamano": "", "cmd": "create"}
+        try:
+            r = await client.post(url, data=params, headers=HEADERS, timeout=60)
+            r.raise_for_status()
+            token = r.text.strip()
+            if not token:
+                logger.warning("DA P: empty token")
+                return 0
+            await asyncio.sleep(1.5)
+            dl_url = f"{SERVLET_BASE}/{cfg['controller']}.java"
+            dl = await client.get(
+                dl_url,
+                params={"cmd": "download", "fileZipName": token},
+                headers=HEADERS,
+                timeout=120,
+            )
+            dl.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(dl.content)) as zf:
+                name = zf.namelist()[0]
+                raw = json.loads(zf.read(name).decode("utf-8", errors="replace"))
+            records = raw if isinstance(raw, list) else raw.get("lista", raw.get("data", []))
+            logger.info("DA P: %d supplier records", len(records))
+        except Exception as e:
+            logger.error("DA P fetch failed: %s", e)
+            return 0
+
+    rows = []
+    for rec in records:
+        cedula = rec.get("CEDULA") or rec.get("CEDULA_PROVEEDOR") or rec.get("cedulaProveedor")
+        nombre = rec.get("NOMBRE") or rec.get("NOMBRE_PROVEEDOR") or rec.get("nombreProveedor")
+        if not cedula or not nombre:
+            continue
+        rows.append({
+            "cedula":    cedula,
+            "nombre":    nombre,
+            "tamano":    rec.get("TAMANO") or rec.get("tamano"),
+            "provincia": rec.get("PROVINCIA") or rec.get("provincia"),
+            "canton":    rec.get("CANTON") or rec.get("canton"),
+            "rawdata":   rec,
+        })
+
+    if not rows or supabase_client is None:
+        return 0
+    supabase_client.table("proveedores").upsert(rows, on_conflict="cedula").execute()
+    logger.info("DA proveedores: %d rows upserted", len(rows))
+    return len(rows)
+
+
+async def fetch_catalogo_bienes(cate_id: str, supabase_client) -> int:
+    """
+    Fetch product catalog from CE_DA_CB_CONTROLLER_JSON (Report 10) for a given cateId.
+    No date params. Returns count upserted into `catalogo_bienes`.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        url = f"{SERVLET_BASE}/CE_DA_CB_CONTROLLER_JSON.java"
+        params = {"cateId": cate_id, "cmd": "create"}
+        try:
+            r = await client.post(url, data=params, headers=HEADERS, timeout=60)
+            r.raise_for_status()
+            token = r.text.strip()
+            if not token:
+                logger.warning("DA CB (cateId=%s): empty token", cate_id)
+                return 0
+            await asyncio.sleep(1.5)
+            dl = await client.get(
+                url,
+                params={"cmd": "download", "fileZipName": token},
+                headers=HEADERS,
+                timeout=120,
+            )
+            dl.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(dl.content)) as zf:
+                name = zf.namelist()[0]
+                raw = json.loads(zf.read(name).decode("utf-8", errors="replace"))
+            records = raw if isinstance(raw, list) else raw.get("lista", raw.get("data", []))
+            logger.info("DA CB (cateId=%s): %d records", cate_id, len(records))
+        except Exception as e:
+            logger.error("DA CB (cateId=%s) fetch failed: %s", cate_id, e)
+            return 0
+
+    rows = []
+    for rec in records:
+        cod_ident = (
+            rec.get("CODIGO_IDENTIFICACION")
+            or rec.get("CODIGOIDENTIFICACION")
+            or rec.get("codigoIdentificacion")
+        )
+        if not cod_ident:
+            continue
+        rows.append({
+            "codigo_clasificacion":       (
+                rec.get("CODIGO_CLASIFICACION")
+                or rec.get("CODIGOCLASIFICACION")
+            ),
+            "codigo_identificacion":      cod_ident,
+            "codigo_producto":            (
+                rec.get("CODIGO_PRODUCTO")
+                or rec.get("CODIGOPRODUCTO")
+                or None
+            ),
+            "descripcion_clasificacion":  (
+                rec.get("DESCRIPCION_CLASIFICACION")
+                or rec.get("DESCRIPCIONCLASIFICACION")
+            ),
+            "descripcion_identificacion": (
+                rec.get("DESCRIPCION_IDENTIFICACION")
+                or rec.get("DESCRIPCIONIDENTIFICACION")
+            ),
+            "descripcion_producto":       (
+                rec.get("DESCRIPCION_PRODUCTO")
+                or rec.get("DESCRIPCIONPRODUCTO")
+                or None
+            ),
+            "rawdata": rec,
+        })
+
+    if not rows or supabase_client is None:
+        return 0
+    supabase_client.table("catalogo_bienes").upsert(
+        rows, on_conflict="codigo_identificacion"
+    ).execute()
+    logger.info("DA catalogo_bienes (cateId=%s): %d rows upserted", cate_id, len(rows))
+    return len(rows)
+
+
+async def fetch_instituciones_compradoras(supabase_client) -> int:
+    """
+    Fetch buyer institution catalog from CE_DA_IC_CONTROLLER_JSON (Report 11).
+    Params: instCdIC, provincias, cantones — all empty for full catalog.
+    Upserts into `instituciones_salud` table.
+    Returns count upserted.
+    """
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        url = f"{SERVLET_BASE}/CE_DA_IC_CONTROLLER_JSON.java"
+        params = {"instCdIC": "", "provincias": "", "cantones": "", "cmd": "create"}
+        try:
+            r = await client.post(url, data=params, headers=HEADERS, timeout=60)
+            r.raise_for_status()
+            token = r.text.strip()
+            if not token:
+                logger.warning("DA IC: empty token")
+                return 0
+            await asyncio.sleep(1.5)
+            dl = await client.get(
+                url,
+                params={"cmd": "download", "fileZipName": token},
+                headers=HEADERS,
+                timeout=120,
+            )
+            dl.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(dl.content)) as zf:
+                name = zf.namelist()[0]
+                raw = json.loads(zf.read(name).decode("utf-8", errors="replace"))
+            records = raw if isinstance(raw, list) else raw.get("lista", raw.get("data", []))
+            logger.info("DA IC: %d institution records", len(records))
+        except Exception as e:
+            logger.error("DA IC fetch failed: %s", e)
+            return 0
+
+    rows = []
+    for rec in records:
+        nombre = (
+            rec.get("NOMBRE_INSTITUCION")
+            or rec.get("NOMBREINSTITUCION")
+            or rec.get("nombreInstitucion")
+        )
+        if not nombre:
+            continue
+        rows.append({
+            "nombre":    nombre,
+            "region":    rec.get("PROVINCIA") or rec.get("provincia"),
+            "direccion": rec.get("CANTON") or rec.get("canton"),
+        })
+
+    if not rows or supabase_client is None:
+        return 0
+    # instituciones_salud has no unique key on nombre — use INSERT, not upsert
+    supabase_client.table("instituciones_salud").insert(rows).execute()
+    logger.info("DA instituciones: %d rows inserted", len(rows))
+    return len(rows)
 
 
 # ─── Main runner ──────────────────────────────────────────────────────────────
@@ -341,7 +870,10 @@ async def run_datos_abiertos(
     d_to   = _fmt_date(today.strftime("%Y-%m-%d"))
     d_from = _fmt_date((today - _dt.timedelta(days=dias)).strftime("%Y-%m-%d"))
 
-    stats = {"scalar": 0, "ofertas": 0, "adjudicaciones": 0}
+    stats = {
+        "scalar": 0, "ofertas": 0, "adjudicaciones": 0,
+        "precios": 0, "contratos": 0, "recursos": 0, "aclaraciones": 0, "ordenes": 0,
+    }
 
     # SC — presupuesto_estimado + moneda_presupuesto
     sc_raw = await fetch_report("SC", d_from, d_to)
@@ -367,12 +899,57 @@ async def run_datos_abiertos(
         logger.info("DA O: %d total offers → %d match tracked procedures", len(o_rows), len(valid_o))
         stats["ofertas"] = upsert_ofertas(valid_o, supabase_client)
 
-    # AF — adjudication dates + desierto (G2)
+    # AF — adjudication dates + desierto (G2) + pricing rows (G9)
     af_raw = await fetch_report("AF", d_from, d_to)
-    af_rows = [parse_af_record(r) for r in af_raw]
+    current_key: str | None = None
+    af_rows: list[dict] = []
+    af_pricing_rows: list[dict] = []
+    for r in af_raw:
+        header = parse_af_record(r)
+        if header is not None:
+            current_key = header["instcartelno"]
+            af_rows.append(header)
+        else:
+            pricing = parse_af_pricing_record(r, current_key)
+            if pricing is not None:
+                af_pricing_rows.append(pricing)
     if supabase_client:
         valid_af = [r for r in af_rows if r]
         stats["adjudicaciones"] = upsert_adjudicaciones(valid_af, supabase_client)
+        stats["precios"] = upsert_precios_historicos(af_pricing_rows, supabase_client)
+
+    # C — contract line prices (G10)
+    c_raw = await fetch_report("C", d_from, d_to)
+    current_c_key: str | None = None
+    c_pricing_rows: list[dict] = []
+    for r in c_raw:
+        header = parse_c_record(r)
+        if header is not None:
+            current_c_key = header["instcartelno"]
+        else:
+            pricing = parse_c_pricing_record(r, current_c_key)
+            if pricing is not None:
+                c_pricing_rows.append(pricing)
+    if supabase_client:
+        stats["contratos"] = upsert_precios_historicos(c_pricing_rows, supabase_client)
+
+    # R — appeals / resources (G6)
+    r_raw = await fetch_report("R", d_from, d_to)
+    r_rows = [parse_r_record(r) for r in r_raw]
+    if supabase_client:
+        stats["recursos"] = upsert_recursos(r_rows, supabase_client)
+
+    # A — clarifications (G5)
+    a_raw = await fetch_report("A", d_from, d_to)
+    a_rows = [parse_a_record(r) for r in a_raw]
+    if supabase_client:
+        stats["aclaraciones"] = upsert_aclaraciones(a_rows, supabase_client)
+
+    # OP — purchase orders (G11)
+    op_raw = await fetch_report("OP", d_from, d_to)
+    op_rows = [parse_op_record(r) for r in op_raw]
+    if supabase_client:
+        stats["ordenes"] = upsert_ordenes_pedido(op_rows, supabase_client)
 
     logger.info("DA run complete: %s", stats)
     return stats

@@ -277,12 +277,17 @@ async def test_run_datos_abiertos_calls_all_three_reports():
     call_order = []
     async def mock_fetch(report_key, *args, **kwargs):
         call_order.append(report_key)
-        return {"SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record]}[report_key]
+        fixtures = {
+            "SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record],
+            "C": [], "R": [], "A": [], "OP": [],
+        }
+        return fixtures.get(report_key, [])
 
     mock_sb = MagicMock()
     mock_table = MagicMock()
     mock_sb.table.return_value = mock_table
     mock_table.upsert.return_value = mock_table
+    mock_table.insert.return_value = mock_table
     mock_table.select.return_value = mock_table
     mock_table.limit.return_value = mock_table
     mock_table.execute.return_value = MagicMock(data=[{"instcartelno": "2026LD-000001-0031700001"}])
@@ -412,6 +417,148 @@ def test_upsert_adjudicaciones_skips_rows_without_instcartelno():
     assert count == 1
 
 
+# ── parse_af_pricing_record ────────────────────────────────────────────────────
+
+def test_parse_af_pricing_record_extracts_fields():
+    from datos_abiertos import parse_af_pricing_record
+    row = {
+        "CEDULA_PROVEEDOR":           "3101189270",
+        "NOMBRE_PROVEEDOR":           "Proveedor S.A.",
+        "PRECIO_UNITARIO_ADJUDICADO": "25",
+        "CANTIDAD_ADJUDICADA":        "10",
+        "UNIDAD_MEDIDA":              "UND",
+        "DESCRIPCION":                "Guantes descartables",
+        "CODIGO_IDENTIFICACION":      "42131601",
+        "NRO_ACTO":                   "1272518",
+    }
+    r = parse_af_pricing_record(row, "2025LY-000006-0001102105")
+    assert r is not None
+    assert r["instcartelno"] == "2025LY-000006-0001102105"
+    assert r["descripcion_item"] == "Guantes descartables"
+    assert r["clasificacion_unspsc"] == "42131601"
+    assert r["proveedor"] == "Proveedor S.A."
+    assert r["precio_unitario"] == pytest.approx(25.0)
+    assert r["cantidad"] == pytest.approx(10.0)
+    assert r["unidad"] == "UND"
+    assert r["rawdata"] == row
+
+
+def test_parse_af_pricing_record_returns_none_without_instcartelno():
+    from datos_abiertos import parse_af_pricing_record
+    row = {
+        "CEDULA_PROVEEDOR":           "3101189270",
+        "PRECIO_UNITARIO_ADJUDICADO": "25",
+        "CANTIDAD_ADJUDICADA":        "1",
+    }
+    assert parse_af_pricing_record(row, None) is None
+
+
+def test_parse_af_pricing_record_returns_none_for_header_rows():
+    from datos_abiertos import parse_af_pricing_record
+    # HEADER rows have NUMERO_PROCEDIMIENTO — must not be parsed as pricing
+    row = {
+        "NUMERO_PROCEDIMIENTO": "2025LY-000006-0001102105",
+        "FECHA_ADJ_FIRME":      "2026-02-27 15:00:27",
+        "DESIERTO":             "N",
+    }
+    assert parse_af_pricing_record(row, "2025LY-000006-0001102105") is None
+
+
+def test_parse_af_pricing_record_returns_none_when_no_useful_data():
+    from datos_abiertos import parse_af_pricing_record
+    # No precio_unitario, no cantidad — not useful
+    row = {
+        "CEDULA_PROVEEDOR": "3101189270",
+        "NOMBRE_PROVEEDOR": "Proveedor S.A.",
+        "NRO_ACTO":         "1272518",
+    }
+    assert parse_af_pricing_record(row, "2025LY-000006-0001102105") is None
+
+
+def test_parse_af_pricing_record_falls_back_cedula_as_proveedor():
+    from datos_abiertos import parse_af_pricing_record
+    # NOMBRE_PROVEEDOR absent — fallback to CEDULA_PROVEEDOR
+    row = {
+        "CEDULA_PROVEEDOR":           "3101189270",
+        "PRECIO_UNITARIO_ADJUDICADO": "50",
+    }
+    r = parse_af_pricing_record(row, "2025LY-000006-0001102105")
+    assert r is not None
+    assert r["proveedor"] == "3101189270"
+    assert r["descripcion_item"] == ""
+
+
+# ── upsert_precios_historicos ──────────────────────────────────────────────────
+
+def test_upsert_precios_historicos_inserts_valid_rows():
+    from datos_abiertos import upsert_precios_historicos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {
+            "instcartelno":    "2025LY-000006-0001102105",
+            "descripcion_item": "Guantes",
+            "precio_unitario": 25.0,
+            "cantidad":        10.0,
+        },
+        {
+            "instcartelno":    "2025LY-000007-0001102105",
+            "descripcion_item": "Mascarillas",
+            "precio_unitario": 50.0,
+            "cantidad":        5.0,
+        },
+    ]
+    count = upsert_precios_historicos(rows, mock_sb)
+    assert count == 2
+    mock_sb.table.assert_called_with("precios_historicos")
+    call_args = mock_table.insert.call_args[0][0]
+    assert len(call_args) == 2
+
+
+def test_upsert_precios_historicos_skips_rows_without_instcartelno():
+    from datos_abiertos import upsert_precios_historicos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "descripcion_item": "Item A", "precio_unitario": 10.0, "cantidad": 1.0},
+        {"instcartelno": None, "descripcion_item": "Item B", "precio_unitario": 20.0, "cantidad": 2.0},
+        {"instcartelno": "",   "descripcion_item": "Item C", "precio_unitario": 30.0, "cantidad": 3.0},
+    ]
+    count = upsert_precios_historicos(rows, mock_sb)
+    assert count == 1
+    call_args = mock_table.insert.call_args[0][0]
+    assert len(call_args) == 1
+    assert call_args[0]["instcartelno"] == "A"
+
+
+def test_upsert_precios_historicos_skips_empty_desc_and_no_precio():
+    from datos_abiertos import upsert_precios_historicos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        # Should be skipped: empty descripcion AND no precio_unitario
+        {"instcartelno": "A", "descripcion_item": "", "precio_unitario": None, "cantidad": 5.0},
+        # Should be kept: empty descripcion but has precio_unitario
+        {"instcartelno": "B", "descripcion_item": "", "precio_unitario": 15.0, "cantidad": None},
+        # Should be kept: has descripcion and precio
+        {"instcartelno": "C", "descripcion_item": "Item C", "precio_unitario": 20.0, "cantidad": 2.0},
+    ]
+    count = upsert_precios_historicos(rows, mock_sb)
+    assert count == 2
+
+
 # ── run_datos_abiertos with AF ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -430,12 +577,17 @@ async def test_run_datos_abiertos_includes_af_report():
     call_order = []
     async def mock_fetch(report_key, *args, **kwargs):
         call_order.append(report_key)
-        return {"SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record]}[report_key]
+        fixtures = {
+            "SC": [sc_record], "DC": [dc_record], "O": [o_record], "AF": [af_record],
+            "C": [], "R": [], "A": [], "OP": [],
+        }
+        return fixtures.get(report_key, [])
 
     mock_sb = MagicMock()
     mock_table = MagicMock()
     mock_sb.table.return_value = mock_table
     mock_table.upsert.return_value = mock_table
+    mock_table.insert.return_value = mock_table
     mock_table.select.return_value = mock_table
     mock_table.limit.return_value = mock_table
     mock_table.execute.return_value = MagicMock(data=[{"instcartelno": "2026LD-000001-0031700001"}])
@@ -444,5 +596,503 @@ async def test_run_datos_abiertos_includes_af_report():
         stats = await run_datos_abiertos(dias=7, supabase_client=mock_sb)
 
     assert "AF" in call_order
+    assert set(["SC", "DC", "O", "AF", "C", "R", "A", "OP"]).issubset(set(call_order))
     assert "adjudicaciones" in stats
     assert stats["adjudicaciones"] >= 0
+    assert "contratos" in stats
+    assert "recursos" in stats
+    assert "aclaraciones" in stats
+    assert "ordenes" in stats
+
+
+# ── parse_c_record ─────────────────────────────────────────────────────────────
+
+def test_parse_c_record_returns_instcartelno():
+    from datos_abiertos import parse_c_record
+    r = parse_c_record({"NUMERO_PROCEDIMIENTO": "2026LD-000005-0001102105"})
+    assert r is not None
+    assert r["instcartelno"] == "2026LD-000005-0001102105"
+
+
+def test_parse_c_record_returns_none_without_key():
+    from datos_abiertos import parse_c_record
+    assert parse_c_record({}) is None
+    assert parse_c_record({"PRECIO_UNITARIO": "100"}) is None
+
+
+# ── parse_c_pricing_record ─────────────────────────────────────────────────────
+
+def test_parse_c_pricing_record_extracts_fields():
+    from datos_abiertos import parse_c_pricing_record
+    row = {
+        "PRECIO_UNITARIO":     "150.50",
+        "CANTIDADCONTRATADA":  "20",
+        "DESCRIPCION":         "Guantes nitrilo",
+        "CEDULA_PROVEEDOR":    "3101189270",
+        "UNIDAD_MEDIDA":       "CAJA",
+    }
+    r = parse_c_pricing_record(row, "2026LD-000005-0001102105")
+    assert r is not None
+    assert r["instcartelno"] == "2026LD-000005-0001102105"
+    assert r["precio_unitario"] == 150.50
+    assert r["cantidad"] == 20.0
+    assert r["descripcion_item"] == "Guantes nitrilo"
+    assert r["proveedor"] == "3101189270"
+    assert r["unidad"] == "CAJA"
+    assert r["fuente"] == "C"
+
+
+def test_parse_c_pricing_record_returns_none_without_instcartelno():
+    from datos_abiertos import parse_c_pricing_record
+    row = {"PRECIO_UNITARIO": "100", "CANTIDADCONTRATADA": "5"}
+    assert parse_c_pricing_record(row, None) is None
+
+
+def test_parse_c_pricing_record_returns_none_for_header_rows():
+    from datos_abiertos import parse_c_pricing_record
+    row = {"NUMERO_PROCEDIMIENTO": "2026LD-000005-0001102105", "PRECIO_UNITARIO": "100"}
+    assert parse_c_pricing_record(row, "2026LD-000005-0001102105") is None
+
+
+def test_parse_c_pricing_record_returns_none_when_no_useful_data():
+    from datos_abiertos import parse_c_pricing_record
+    row = {"CEDULA_PROVEEDOR": "3101189270"}  # No price, no quantity
+    assert parse_c_pricing_record(row, "2026LD-000005-0001102105") is None
+
+
+# ── parse_r_record ─────────────────────────────────────────────────────────────
+
+def test_parse_r_record_extracts_fields():
+    from datos_abiertos import parse_r_record
+    r = parse_r_record({
+        "NUMERO_PROCEDIMIENTO": "2026LD-000010-0001102105",
+        "ASUNTO":               "Recurso de objeción al cartel",
+        "CEDULA_PROVEEDOR":     "3102123456",
+        "TIPO_RECURSO":         "OBJECION_CARTEL",
+        "FECHA_SOLICITUD":      "2026-03-15 10:00:00",
+    })
+    assert r is not None
+    assert r["instcartelno"] == "2026LD-000010-0001102105"
+    assert r["asunto"] == "Recurso de objeción al cartel"
+    assert r["cedula_proveedor"] == "3102123456"
+    assert r["tipo_recurso"] == "OBJECION_CARTEL"
+    assert r["fecha_solicitud"] == "2026-03-15 10:00:00"
+
+
+def test_parse_r_record_returns_none_without_key():
+    from datos_abiertos import parse_r_record
+    assert parse_r_record({}) is None
+    assert parse_r_record({"ASUNTO": "alguno"}) is None
+
+
+def test_parse_r_record_accepts_nro_procedimiento_variant():
+    from datos_abiertos import parse_r_record
+    r = parse_r_record({"NRO_PROCEDIMIENTO": "2026LD-000011-0001102105", "TIPORECURSO": "APELACION"})
+    assert r is not None
+    assert r["instcartelno"] == "2026LD-000011-0001102105"
+    assert r["tipo_recurso"] == "APELACION"
+
+
+# ── parse_a_record ─────────────────────────────────────────────────────────────
+
+def test_parse_a_record_extracts_fields():
+    from datos_abiertos import parse_a_record
+    r = parse_a_record({
+        "NUMERO_PROCEDIMIENTO": "2026LD-000012-0001102105",
+        "TITULO":               "Aclaración sobre especificaciones técnicas",
+        "FECHA_SOLICITUD":      "2026-03-10 09:00:00",
+        "SOLICITANTE":          "Empresa XYZ S.A.",
+    })
+    assert r is not None
+    assert r["instcartelno"] == "2026LD-000012-0001102105"
+    assert r["titulo"] == "Aclaración sobre especificaciones técnicas"
+    assert r["fecha_solicitud"] == "2026-03-10 09:00:00"
+    assert r["solicitante"] == "Empresa XYZ S.A."
+
+
+def test_parse_a_record_returns_none_without_key():
+    from datos_abiertos import parse_a_record
+    assert parse_a_record({}) is None
+    assert parse_a_record({"TITULO": "algo"}) is None
+
+
+# ── parse_op_record ────────────────────────────────────────────────────────────
+
+def test_parse_op_record_extracts_fields():
+    from datos_abiertos import parse_op_record
+    r = parse_op_record({
+        "NUMERO_PROCEDIMIENTO":  "2026LD-000020-0001102105",
+        "NUMERO_ORDEN_PEDIDO":   "OP-2026-001234",
+        "CEDULA_PROVEEDOR":      "3101189270",
+        "PRECIO_UNITARIO":       "75.00",
+        "CANTIDAD":              "100",
+        "UNIDAD_MEDIDA":         "UNIDAD",
+        "MONTO_TOTAL":           "7500.00",
+        "TIPO_MONEDA":           "CRC",
+        "FECHA_ORDEN":           "2026-03-20 08:00:00",
+    })
+    assert r is not None
+    assert r["numero_orden"] == "OP-2026-001234"
+    assert r["instcartelno"] == "2026LD-000020-0001102105"
+    assert r["precio_unitario"] == 75.0
+    assert r["cantidad"] == 100.0
+    assert r["monto_total"] == 7500.0
+    assert r["currencytype"] == "CRC"
+    assert r["fecha_orden"] == "2026-03-20 08:00:00"
+
+
+def test_parse_op_record_returns_none_without_numero_orden():
+    from datos_abiertos import parse_op_record
+    assert parse_op_record({}) is None
+    assert parse_op_record({"NUMERO_PROCEDIMIENTO": "2026LD-000020-0001102105"}) is None
+
+
+def test_parse_op_record_instcartelno_nullable():
+    from datos_abiertos import parse_op_record
+    # OP may not have NUMERO_PROCEDIMIENTO — instcartelno should be None
+    r = parse_op_record({"NUMERO_ORDEN_PEDIDO": "OP-2026-000001", "PRECIO_UNITARIO": "10"})
+    assert r is not None
+    assert r["instcartelno"] is None
+    assert r["numero_orden"] == "OP-2026-000001"
+
+
+# ── upsert_recursos ────────────────────────────────────────────────────────────
+
+def test_upsert_recursos_inserts_valid_rows():
+    from datos_abiertos import upsert_recursos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "asunto": "Recurso 1", "cedula_proveedor": "123", "fecha_solicitud": "2026-01-01"},
+        {"instcartelno": "B", "asunto": "Recurso 2", "cedula_proveedor": "456", "fecha_solicitud": "2026-01-02"},
+    ]
+    count = upsert_recursos(rows, mock_sb)
+    assert count == 2
+    mock_sb.table.assert_called_with("da_recursos")
+
+
+def test_upsert_recursos_deduplicates():
+    from datos_abiertos import upsert_recursos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "cedula_proveedor": "123", "fecha_solicitud": "2026-01-01"},
+        {"instcartelno": "A", "cedula_proveedor": "123", "fecha_solicitud": "2026-01-01"},  # dup
+    ]
+    count = upsert_recursos(rows, mock_sb)
+    assert count == 1
+
+
+def test_upsert_recursos_returns_zero_for_empty():
+    from datos_abiertos import upsert_recursos
+    assert upsert_recursos([], MagicMock()) == 0
+
+
+# ── upsert_aclaraciones ────────────────────────────────────────────────────────
+
+def test_upsert_aclaraciones_inserts_valid_rows():
+    from datos_abiertos import upsert_aclaraciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"instcartelno": "A", "titulo": "Aclaración 1", "fecha_solicitud": "2026-01-01", "solicitante": "S.A."},
+    ]
+    count = upsert_aclaraciones(rows, mock_sb)
+    assert count == 1
+    mock_sb.table.assert_called_with("da_aclaraciones")
+
+
+def test_upsert_aclaraciones_returns_zero_for_empty():
+    from datos_abiertos import upsert_aclaraciones
+    assert upsert_aclaraciones([], MagicMock()) == 0
+
+
+# ── upsert_ordenes_pedido ──────────────────────────────────────────────────────
+
+def test_upsert_ordenes_pedido_upserts_valid_rows():
+    from datos_abiertos import upsert_ordenes_pedido
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    rows = [
+        {"numero_orden": "OP-001", "precio_unitario": 10.0, "instcartelno": "A"},
+        {"numero_orden": "OP-002", "precio_unitario": 20.0, "instcartelno": "B"},
+    ]
+    count = upsert_ordenes_pedido(rows, mock_sb)
+    assert count == 2
+    mock_sb.table.assert_called_with("da_ordenes_pedido")
+    call_args = mock_table.upsert.call_args
+    assert "numero_orden" in str(call_args)
+
+
+def test_upsert_ordenes_pedido_skips_rows_without_numero_orden():
+    from datos_abiertos import upsert_ordenes_pedido
+    mock_sb = MagicMock()
+    rows = [
+        {"numero_orden": None, "precio_unitario": 10.0},
+        {"numero_orden": "",   "precio_unitario": 20.0},
+    ]
+    assert upsert_ordenes_pedido(rows, mock_sb) == 0
+
+
+def test_upsert_ordenes_pedido_returns_zero_for_empty():
+    from datos_abiertos import upsert_ordenes_pedido
+    assert upsert_ordenes_pedido([], MagicMock()) == 0
+
+
+# ── parse_af_pricing_record fuente field ──────────────────────────────────────
+
+def test_parse_af_pricing_record_includes_fuente_af():
+    from datos_abiertos import parse_af_pricing_record
+    row = {
+        "CEDULA_PROVEEDOR":            "3101189270",
+        "PRECIO_UNITARIO_ADJUDICADO":  "25",
+        "CANTIDAD_ADJUDICADA":         "10",
+    }
+    r = parse_af_pricing_record(row, "2025LY-000006-0001102105")
+    assert r is not None
+    assert r["fuente"] == "AF"
+
+
+# ── fetch_proveedores ──────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_proveedores_upserts_valid_rows():
+    from datos_abiertos import fetch_proveedores
+
+    supplier_records = [
+        {"CEDULA": "3101111111", "NOMBRE": "Proveedor A S.A.", "TAMANO": "MEDIANO", "PROVINCIA": "San José"},
+        {"CEDULA": "3101222222", "NOMBRE": "Proveedor B Ltda.", "TAMANO": "MICRO", "PROVINCIA": "Heredia"},
+    ]
+    zip_bytes = make_zip("proveedores.json", supplier_records)
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "proveedores_token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_proveedores(mock_sb)
+
+    assert count == 2
+    mock_sb.table.assert_called_with("proveedores")
+    upsert_call = mock_table.upsert.call_args
+    assert upsert_call is not None
+    rows = upsert_call[0][0]
+    assert rows[0]["cedula"] == "3101111111"
+    assert rows[0]["tamano"] == "MEDIANO"
+
+
+@pytest.mark.asyncio
+async def test_fetch_proveedores_skips_records_without_cedula():
+    from datos_abiertos import fetch_proveedores
+
+    supplier_records = [
+        {"NOMBRE": "Sin cédula S.A."},               # no CEDULA → skip
+        {"CEDULA": "3101333333", "NOMBRE": "OK"},     # valid
+    ]
+    zip_bytes = make_zip("proveedores.json", supplier_records)
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_proveedores(mock_sb)
+
+    assert count == 1
+
+
+# ── fetch_catalogo_bienes ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_catalogo_bienes_upserts_valid_rows():
+    from datos_abiertos import fetch_catalogo_bienes
+
+    catalog_records = [
+        {
+            "CODIGO_CLASIFICACION":       "42181500",
+            "CODIGO_IDENTIFICACION":      "4218150000000001",
+            "DESCRIPCION_CLASIFICACION":  "Artículos de anestesia",
+            "DESCRIPCION_IDENTIFICACION": "Mascarillas anestésicas",
+        },
+    ]
+    zip_bytes = make_zip("catalogo.json", catalog_records)
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "catalogo_token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_catalogo_bienes("42000000", mock_sb)
+
+    assert count == 1
+    mock_sb.table.assert_called_with("catalogo_bienes")
+    upsert_call = mock_table.upsert.call_args
+    rows = upsert_call[0][0]
+    assert rows[0]["codigo_identificacion"] == "4218150000000001"
+    assert rows[0]["codigo_clasificacion"] == "42181500"
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalogo_bienes_skips_records_without_codigo_identificacion():
+    from datos_abiertos import fetch_catalogo_bienes
+
+    catalog_records = [
+        {"CODIGO_CLASIFICACION": "42181500"},  # no CODIGO_IDENTIFICACION → skip
+    ]
+    zip_bytes = make_zip("catalogo.json", catalog_records)
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_catalogo_bienes("42000000", mock_sb)
+
+    assert count == 0
+
+
+# ── fetch_instituciones_compradoras ────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_instituciones_compradoras_inserts_valid_rows():
+    from datos_abiertos import fetch_instituciones_compradoras
+
+    inst_records = [
+        {"NOMBRE_INSTITUCION": "Hospital Nacional de Niños", "PROVINCIA": "San José", "CANTON": "Central"},
+        {"NOMBRE_INSTITUCION": "CCSS Central", "PROVINCIA": "San José"},
+    ]
+    zip_bytes = make_zip("instituciones.json", inst_records)
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "ic_token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_instituciones_compradoras(mock_sb)
+
+    assert count == 2
+    mock_sb.table.assert_called_with("instituciones_salud")
+
+
+@pytest.mark.asyncio
+async def test_fetch_instituciones_compradoras_skips_without_nombre():
+    from datos_abiertos import fetch_instituciones_compradoras
+
+    inst_records = [
+        {"PROVINCIA": "San José"},  # no nombre → skip
+    ]
+    zip_bytes = make_zip("instituciones.json", inst_records)
+
+    mock_sb = MagicMock()
+    mock_create_resp = MagicMock()
+    mock_create_resp.text = "token.zip"
+    mock_create_resp.raise_for_status = MagicMock()
+
+    mock_dl_resp = MagicMock()
+    mock_dl_resp.content = zip_bytes
+    mock_dl_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_create_resp)
+    mock_client.get = AsyncMock(return_value=mock_dl_resp)
+
+    with patch("datos_abiertos.httpx.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
+        count = await fetch_instituciones_compradoras(mock_sb)
+
+    assert count == 0
