@@ -351,7 +351,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             status={precios.length > 0 ? "active" : "pendiente"}
           >
             {precios.length === 0 ? (
-              <p className="text-sm text-[var(--color-text-muted)]">Sin precios registrados.</p>
+              <span>Sin precios registrados.</span>
             ) : (
               <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
                 <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
