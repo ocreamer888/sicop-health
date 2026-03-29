@@ -534,7 +534,12 @@ def _merge_by_instcartelno(rows: list[dict], fields: set) -> list[dict]:
     return list(merged.values())
 
 
-def upsert_scalar_enrichments(sc_rows: list[dict], dc_rows: list[dict], supabase_client) -> int:
+def upsert_scalar_enrichments(
+    sc_rows: list[dict],
+    dc_rows: list[dict],
+    supabase_client,
+    known_set: set[str] | None = None,
+) -> int:
     """
     Patch scalar DA fields onto licitaciones_medicas.
 
@@ -545,7 +550,14 @@ def upsert_scalar_enrichments(sc_rows: list[dict], dc_rows: list[dict], supabase
     """
     total = 0
 
-    sc_records = _merge_by_instcartelno([r for r in sc_rows if r], _SC_FIELDS)
+    # Filter to known procedures if provided — prevents INSERT attempts on
+    # non-medical procedures which would violate NOT NULL constraints.
+    def _filter(rows):
+        if known_set is None:
+            return rows
+        return [r for r in rows if r and r.get("instcartelno") in known_set]
+
+    sc_records = _merge_by_instcartelno([r for r in _filter(sc_rows) if r], _SC_FIELDS)
     if sc_records:
         try:
             supabase_client.table("licitaciones_medicas").upsert(
@@ -555,7 +567,7 @@ def upsert_scalar_enrichments(sc_rows: list[dict], dc_rows: list[dict], supabase
         except Exception as e:
             logger.error("DA scalar SC upsert failed: %s", e)
 
-    dc_records = _merge_by_instcartelno([r for r in dc_rows if r], _DC_FIELDS)
+    dc_records = _merge_by_instcartelno([r for r in _filter(dc_rows) if r], _DC_FIELDS)
     if dc_records:
         try:
             supabase_client.table("licitaciones_medicas").upsert(
@@ -594,12 +606,18 @@ def upsert_ofertas(rows: list[dict], supabase_client) -> int:
         return 0
 
 
-def upsert_adjudicaciones(rows: list[dict], supabase_client) -> int:
+def upsert_adjudicaciones(
+    rows: list[dict],
+    supabase_client,
+    known_set: set[str] | None = None,
+) -> int:
     """
     Patch fecha_adj_firme and desierto onto licitaciones_medicas via upsert.
     Returns count of rows written.
     """
     valid = [r for r in rows if r and r.get("instcartelno")]
+    if known_set is not None:
+        valid = [r for r in valid if r["instcartelno"] in known_set]
     if not valid:
         return 0
     # Deduplicate by instcartelno — AF can return multiple HEADER rows per procedure

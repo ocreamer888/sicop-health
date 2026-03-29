@@ -254,6 +254,23 @@ def test_upsert_scalar_enrichments_returns_zero_on_db_error():
     assert result == 0
 
 
+def test_upsert_scalar_enrichments_filters_to_known_set():
+    from datos_abiertos import upsert_scalar_enrichments
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    known = {"2026CD-001-0031700001"}
+    sc = [
+        {"instcartelno": "2026CD-001-0031700001", "presupuesto_estimado": 1000.0, "moneda_presupuesto": "CRC"},
+        {"instcartelno": "2026CD-999-UNKNOWN",    "presupuesto_estimado": 2000.0, "moneda_presupuesto": "CRC"},
+    ]
+    result = upsert_scalar_enrichments(sc, [], mock_sb, known_set=known)
+    assert result == 1  # only the known procedure was upserted
+
+
 # ── upsert_ofertas ────────────────────────────────────────────────────────────
 
 def test_upsert_ofertas_skips_rows_without_suppliercd():
@@ -456,6 +473,23 @@ def test_upsert_adjudicaciones_returns_zero_on_db_error():
     rows = [{"instcartelno": "2026CD-001-0031700001", "fecha_adj_firme": "2026-03-01", "desierto": False}]
     result = upsert_adjudicaciones(rows, mock_sb)
     assert result == 0
+
+
+def test_upsert_adjudicaciones_filters_to_known_set():
+    from datos_abiertos import upsert_adjudicaciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    known = {"2026CD-001-0031700001"}
+    rows = [
+        {"instcartelno": "2026CD-001-0031700001", "fecha_adj_firme": "2026-03-01", "desierto": False},
+        {"instcartelno": "2026CD-999-UNKNOWN",    "fecha_adj_firme": "2026-03-02", "desierto": False},
+    ]
+    result = upsert_adjudicaciones(rows, mock_sb, known_set=known)
+    assert result == 1
 
 
 # ── parse_af_pricing_record ────────────────────────────────────────────────────
