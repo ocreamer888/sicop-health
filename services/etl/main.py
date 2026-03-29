@@ -17,7 +17,9 @@ load_dotenv()
 from fetcher import fetch_sicop
 from parser import parse_batch
 from classifier import clasificar
-from uploader import upsert_licitaciones, insert_modificaciones
+from uploader import upsert_licitaciones, insert_modificaciones, get_supabase_client
+from datos_abiertos import run_datos_abiertos
+from notifier import send_notifications
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -147,6 +149,25 @@ async def run(dias_atras: int = 90) -> None:
         total_procesados,
         (total_medicas / total_procesados * 100) if total_procesados else 0,
     )
+
+    # ── Datos Abiertos enrichment (Nodes 2, 3, 12) ────────────────────────
+    try:
+        da_stats = await run_datos_abiertos(dias=30, supabase_client=get_supabase_client())
+        logger.info(
+            "[da] scalar=%d ofertas=%d adj=%d precios=%d contratos=%d recursos=%d aclaraciones=%d ordenes=%d",
+            da_stats["scalar"], da_stats["ofertas"], da_stats["adjudicaciones"],
+            da_stats["precios"], da_stats["contratos"], da_stats["recursos"],
+            da_stats["aclaraciones"], da_stats["ordenes"],
+        )
+    except Exception as e:
+        logger.error("[da] enrichment failed (non-fatal): %s", e)
+
+    # ── Personalized notifications ─────────────────────────────────────────
+    try:
+        notif_stats = await send_notifications(all_medicas_raw)
+        logger.info("[notifier] checked=%d emails_sent=%d", notif_stats["checked"], notif_stats["emails_sent"])
+    except Exception as e:
+        logger.error("[notifier] notifications failed (non-fatal): %s", e)
 
 
 # ── Entrypoints ───────────────────────────────────────────────────────────────

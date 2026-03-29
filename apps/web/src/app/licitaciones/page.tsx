@@ -10,7 +10,7 @@ async function getLicitaciones(): Promise<LicitacionPreview[]> {
   const { data, error } = await supabase
     .from("licitaciones_medicas")
     .select(
-      "id, instcartelno, cartelnm, instnm, categoria, tipo_procedimiento, monto_colones, currency_type, biddoc_start_dt, biddoc_end_dt, estado, es_medica"
+      "id, instcartelno, cartelnm, instnm, categoria, tipo_procedimiento, monto_colones, currency_type, presupuesto_estimado, moneda_presupuesto, biddoc_start_dt, biddoc_end_dt, estado, es_medica"
     )
     .eq("es_medica", true)
     .not("categoria", "is", null)
@@ -74,7 +74,7 @@ export default async function LicitacionesPage() {
         <div className="rounded-[24px] bg-[#1a1f1a] p-6">
           <p className="text-sm text-[var(--color-text-muted)]">Con Monto</p>
           <p className="mt-2 text-3xl font-semibold text-[#f9f5df]">
-            {licitaciones.filter((l) => l.monto_colones).length.toLocaleString()}
+            {licitaciones.filter((l) => l.presupuesto_estimado ?? l.monto_colones).length.toLocaleString()}
           </p>
         </div>
       </div>

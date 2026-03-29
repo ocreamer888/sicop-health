@@ -151,9 +151,12 @@ function LicitacionCard({ licitacion }: LicitacionCardProps) {
             <span>Cierre: {cierre}</span>
           </div>
         )}
-        {licitacion.monto_colones !== null && (
+        {(licitacion.presupuesto_estimado ?? licitacion.monto_colones) !== null && (
           <p className="text-xs text-[#f2f5f9] font-medium pl-0.5">
-            {formatCurrency(licitacion.monto_colones, licitacion.currency_type)}
+            {formatCurrency(
+              licitacion.presupuesto_estimado ?? licitacion.monto_colones,
+              licitacion.moneda_presupuesto ?? licitacion.currency_type
+            )}
           </p>
         )}
       </div>
@@ -285,14 +288,16 @@ export function LicitacionesTable({
     {
       accessorKey: "monto_colones",
       header: "Monto",
-      cell: ({ row }) => (
-        <span className="font-mono text-sm text-[#f9f5df]">
-          {formatCurrency(
-            row.getValue("monto_colones"),
-            row.original.currency_type
-          )}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const monto = row.original.presupuesto_estimado ?? row.getValue<number | null>("monto_colones")
+        const moneda = row.original.moneda_presupuesto ?? row.original.currency_type
+        if (!monto) return <span className="text-[var(--color-text-muted)]">–</span>
+        return (
+          <span className="font-mono text-sm text-[#f9f5df]">
+            {formatCurrency(monto, moneda)}
+          </span>
+        )
+      },
     },
     {
       accessorKey: "biddoc_start_dt",

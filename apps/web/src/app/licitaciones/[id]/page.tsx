@@ -11,10 +11,41 @@ import { WorkflowProgress } from "@/components/workflow/WorkflowProgress"
 import { DeadlineCountdown } from "@/components/workflow/DeadlineCountdown"
 import { WhatsAppButton } from "@/components/workflow/WhatsAppButton"
 import { TIPO_LABELS } from "@/lib/types"
-import type { Licitacion, Categoria } from "@/lib/types"
+import type { Licitacion, Categoria, UserProfile } from "@/lib/types"
+import { checkEligibility } from "@/lib/eligibility"
+import type { EligibilityResult } from "@/lib/eligibility"
 
 interface PageProps {
   params: Promise<{ id: string }>
+}
+
+interface DaOferta {
+  suppliernm: string | null
+  suppliercd: string | null
+  elegible: boolean | null
+  orden_merito: number | null
+  fecha_apertura: string | null
+}
+
+interface PrecioHistorico {
+  proveedor: string | null
+  precio_unitario: number | null
+  cantidad: number | null
+  unidad: string | null
+  fuente: string | null
+}
+
+interface DaAclaracion {
+  titulo: string | null
+  fecha_solicitud: string | null
+  solicitante: string | null
+}
+
+interface DaRecurso {
+  asunto: string | null
+  cedula_proveedor: string | null
+  tipo_recurso: string | null
+  fecha_solicitud: string | null
 }
 
 const categoriaLabels: Record<Categoria, string> = {
@@ -37,6 +68,7 @@ function formatCurrency(amount: number | null, currency?: string | null): string
   return `${symbol}${amount.toLocaleString("es-CR")}`
 }
 
+
 async function getLicitacion(id: string): Promise<Licitacion | null> {
   const supabase = await createClient()
   const { data, error } = await supabase
@@ -48,22 +80,90 @@ async function getLicitacion(id: string): Promise<Licitacion | null> {
   return data as Licitacion
 }
 
+async function getOfertas(instcartelno: string): Promise<DaOferta[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_ofertas")
+    .select("suppliernm, suppliercd, elegible, orden_merito, fecha_apertura")
+    .eq("instcartelno", instcartelno)
+    .order("orden_merito", { ascending: true, nullsFirst: false })
+  return (data ?? []) as DaOferta[]
+}
+
+async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .single()
+  return data as UserProfile | null
+}
+
+async function getPrecios(instcartelno: string): Promise<PrecioHistorico[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("precios_historicos")
+    .select("proveedor, precio_unitario, cantidad, unidad, fuente")
+    .eq("instcartelno", instcartelno)
+    .order("proveedor", { ascending: true })
+  return (data ?? []) as PrecioHistorico[]
+}
+
+async function getAclaraciones(instcartelno: string): Promise<DaAclaracion[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_aclaraciones")
+    .select("titulo, fecha_solicitud, solicitante")
+    .eq("instcartelno", instcartelno)
+    .order("fecha_solicitud", { ascending: true })
+  return (data ?? []) as DaAclaracion[]
+}
+
+async function getRecursos(instcartelno: string): Promise<DaRecurso[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_recursos")
+    .select("asunto, cedula_proveedor, tipo_recurso, fecha_solicitud")
+    .eq("instcartelno", instcartelno)
+    .order("fecha_solicitud", { ascending: true })
+  return (data ?? []) as DaRecurso[]
+}
+
 export default async function LicitacionDetailPage({ params }: PageProps) {
   const { id } = await params
-  const l = await getLicitacion(id)
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const [l, ofertas, profile, precios, aclaraciones, recursos] = await Promise.all([
+    getLicitacion(id),
+    getOfertas(id),
+    user ? getUserProfile(user.id) : Promise.resolve(null),
+    getPrecios(id),
+    getAclaraciones(id),
+    getRecursos(id),
+  ])
   if (!l) notFound()
 
   const isPublicado = l.estado === "Publicado"
   const tipoLabel = TIPO_LABELS[l.tipo_procedimiento ?? ""] ?? l.tipo_procedimiento ?? "N/A"
 
-  // WorkflowProgress: count active/partial nodes among 1–6
-  // Node 1 always active (instnm always present)
-  // Node 2 always pendiente (gap)
-  // Node 3 always pendiente (gap)
-  // Node 4 always pendiente (depends on node 3)
-  // Node 5 partial if biddoc_end_dt present
-  // Node 6 always pendiente (gap)
-  const completedNodes = 1 + (l.biddoc_end_dt ? 1 : 0) // nodes 1 and 5
+  const elig = checkEligibility(l, profile)
+
+  const completedNodes = 1
+    + (l.presupuesto_estimado ? 1 : 0)
+    + (l.modalidad_participacion ? 1 : 0)
+    + (elig.ok === true ? 1 : 0)
+    + (l.biddoc_end_dt ? 1 : 0)
+
+  // Build price lookup: normalize supplier name → avg unit price from precios_historicos
+  const preciosByProveedor = new Map<string, number>()
+  for (const p of precios) {
+    if (p.proveedor && p.precio_unitario !== null) {
+      const key = p.proveedor.trim().toLowerCase()
+      const existing = preciosByProveedor.get(key)
+      preciosByProveedor.set(key, existing === undefined ? p.precio_unitario : (existing + p.precio_unitario) / 2)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
@@ -71,6 +171,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
         instcartelno={l.instcartelno}
         instCode={l.inst_code}
         biddocStartDt={l.biddoc_start_dt}
+        instnm={l.instnm ?? null}
       />
 
       {/* Back */}
@@ -135,19 +236,97 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
           </WorkflowNode>
 
           {/* Node 2 — Presupuesto estimado */}
-          <WorkflowNode nodeNumber={2} label="Presupuesto Estimado" status="pendiente">
-            Pendiente: dato no disponible en API REST — requiere módulo Datos Abiertos (JSP)
+          <WorkflowNode
+            nodeNumber={2}
+            label="Presupuesto Estimado"
+            status={l.presupuesto_estimado ? "active" : "pendiente"}
+          >
+            {l.presupuesto_estimado ? (
+              <div className="rounded-[16px] bg-[#2c3833] p-4">
+                <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                  Presupuesto estimado
+                </p>
+                <p className="text-2xl font-semibold text-[#f9f5df]">
+                  {formatCurrency(l.presupuesto_estimado, l.moneda_presupuesto)}
+                </p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  Solicitud de contratación (Datos Abiertos)
+                </p>
+              </div>
+            ) : (
+              "Pendiente: sin datos de presupuesto disponibles aún"
+            )}
           </WorkflowNode>
 
           {/* Node 3 — Tipo de participación */}
-          <WorkflowNode nodeNumber={3} label="Tipo de Participación" status="pendiente">
-            Pendiente: requiere Datos Abiertos (RE_DatosAbiertosConcursosView.jsp)
-          </WorkflowNode>
+          {(() => {
+            const m = l.modalidad_participacion
+            const status = m === "Precalificación" ? "blocked"
+                         : m ? "active"
+                         : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={3} label="Tipo de Participación" status={status}>
+                {m === "Precalificación" ? (
+                  "Pre-calificación requerida — participación restringida a proveedores registrados"
+                ) : m ? (
+                  <div className="rounded-[16px] bg-[#2c3833] p-4">
+                    <p className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider mb-1">
+                      Modalidad
+                    </p>
+                    <p className="text-[#f2f5f9] font-medium">{m}</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                      Participación abierta
+                    </p>
+                  </div>
+                ) : (
+                  "Pendiente: modalidad no disponible en Datos Abiertos aún"
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Node 4 — Elegibilidad */}
-          <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status="pendiente">
-            Pendiente: depende del Nodo 3 — se habilitará cuando se conozca el tipo de participación
-          </WorkflowNode>
+          {(() => {
+            const node4Status = elig.ok === null && elig.reason === "precal"
+              ? "blocked"
+              : elig.ok === true
+                ? "active"
+                : elig.ok === false
+                  ? "partial"
+                  : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={4} label="Elegibilidad del Proveedor" status={node4Status}>
+                {elig.ok === null && elig.reason === "no_profile" ? (
+                  <>
+                    Completa tu perfil para evaluar compatibilidad con esta licitación.{" "}
+                    <Link href="/auth/onboarding" className="text-[#84a584] underline underline-offset-2">
+                      Completar perfil
+                    </Link>
+                  </>
+                ) : elig.ok === null && elig.reason === "precal" ? (
+                  "Pre-calificación requerida — verifica si tu empresa está registrada en el registro de proveedores de SICOP."
+                ) : elig.ok === true ? (
+                  <div className="rounded-[16px] bg-[#2c3833] p-4">
+                    <p className="text-sm font-medium text-[#84a584]">✓ Perfil compatible con esta licitación</p>
+                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                      Categoría, institución y presupuesto dentro de tus parámetros
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(elig as { ok: false; reasons: string[] }).reasons.map((r, i) => (
+                      <div key={i} className="rounded-[16px] border border-[#b5a88a]/30 bg-[#b5a88a]/10 px-4 py-3">
+                        <p className="text-sm text-[#b5a88a]">⚠️ {r}</p>
+                      </div>
+                    ))}
+                    <p className="text-xs text-[var(--color-text-muted)] pt-1">
+                      Puedes continuar si consideras que aplicas — estas son sugerencias basadas en tu perfil.
+                    </p>
+                  </div>
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Node 5 — Tiempo para fabricar */}
           <WorkflowNode
@@ -175,17 +354,86 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             )}
           </WorkflowNode>
 
+          {/* Aclaraciones — hidden when empty */}
+          {aclaraciones.length > 0 && (
+            <WorkflowNode
+              nodeNumber="A"
+              label={`Aclaraciones (${aclaraciones.length})`}
+              status="active"
+            >
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[auto_1fr_1fr] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Fecha</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Solicitante</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Título</span>
+                </div>
+                {aclaraciones.map((a, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[auto_1fr_1fr] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-start"
+                  >
+                    <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {a.fecha_solicitud ? formatDate(a.fecha_solicitud) : "–"}
+                    </p>
+                    <p className="text-sm text-[#f2f5f9] truncate">{a.solicitante ?? "–"}</p>
+                    <p className="text-sm text-[#f2f5f9] leading-snug">{a.titulo ?? "–"}</p>
+                  </div>
+                ))}
+              </div>
+            </WorkflowNode>
+          )}
+
           {/* Node 6 — Cantidades y precios */}
-          <WorkflowNode nodeNumber={6} label="Cantidades y Precios por Línea" status="pendiente">
-            Pendiente: requiere líneas de cartel (CE_MOD_DATOSABIERTOSVIEW.jsp, Reportes 1.1 / 2.1)
+          <WorkflowNode
+            nodeNumber={6}
+            label="Cantidades y Precios por Línea"
+            status={precios.length > 0 ? "active" : "pendiente"}
+          >
+            {precios.length === 0 ? (
+              <span className="text-sm text-[var(--color-text-muted)]">Sin precios registrados.</span>
+            ) : (
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Precio Unit.</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Cantidad</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Unidad</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Fuente</span>
+                </div>
+                {precios.map((p, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
+                  >
+                    <p className="text-sm text-[#f2f5f9] truncate min-w-0">{p.proveedor ?? "–"}</p>
+                    <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                      {p.precio_unitario !== null ? formatCurrency(p.precio_unitario) : "–"}
+                    </p>
+                    <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                      {p.cantidad?.toLocaleString("es-CR") ?? "–"}
+                    </p>
+                    <p className="text-sm text-[var(--color-text-muted)] text-right">{p.unidad ?? "–"}</p>
+                    <div className="flex justify-center">
+                      {p.fuente === "AF" ? (
+                        <span className="rounded-full bg-[#84a584]/20 px-2 py-0.5 text-xs font-medium text-[#84a584]">AF</span>
+                      ) : p.fuente === "C" ? (
+                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-400">C</span>
+                      ) : (
+                        <span className="text-xs text-[var(--color-text-muted)]">–</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </WorkflowNode>
 
           {/* Node 7 — Contactar fabricante */}
-          <WorkflowNode nodeNumber={7} label="Contactar Fabricante" status="partial">
+          <WorkflowNode nodeNumber={7} label="Contactar Fabricante" status="active">
             <div className="space-y-3">
               <p className="text-sm text-[var(--color-text-muted)]">
                 Envía la especificación disponible a un fabricante vía WhatsApp.
-                {!l.monto_colones && (
+                {!l.monto_colones && !l.presupuesto_estimado && (
                   <span className="block mt-1 text-xs italic">
                     ⚠️ Monto no disponible aún — se incluirá al adjudicarse.
                   </span>
@@ -198,14 +446,55 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                 biddocEndDt={l.biddoc_end_dt}
                 montoColones={l.monto_colones}
                 currencyType={l.currency_type}
+                presupuestoEstimado={l.presupuesto_estimado}
+                monedaPresupuesto={l.moneda_presupuesto}
               />
             </div>
           </WorkflowNode>
 
           {/* Node 8-9 — Margen y Dossier */}
           <WorkflowNode nodeNumber="8–9" label="Margen de Negocio y Solicitud de Dossier" status="pendiente">
-            Proceso externo — el fabricante provee dossier completo (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días.
+            Proceso externo: solicita dossier completo al fabricante (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días hábiles.
           </WorkflowNode>
+
+          {/* Recursos — hidden when empty; amber dot signals contested tender */}
+          {recursos.length > 0 && (
+            <WorkflowNode
+              nodeNumber="R"
+              label={`Recursos (${recursos.length})`}
+              status="partial"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Licitación con recursos presentados — proceso potencialmente impugnado
+                </p>
+              </div>
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[auto_auto_auto_1fr] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Fecha</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Tipo</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Cédula</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Asunto</span>
+                </div>
+                {recursos.map((r, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[auto_auto_auto_1fr] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-start"
+                  >
+                    <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {r.fecha_solicitud ? formatDate(r.fecha_solicitud) : "–"}
+                    </p>
+                    <p className="text-xs text-[#f2f5f9] whitespace-nowrap">{r.tipo_recurso ?? "–"}</p>
+                    <p className="font-mono text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {r.cedula_proveedor ?? "–"}
+                    </p>
+                    <p className="text-sm text-[#f2f5f9] leading-snug">{r.asunto ?? "–"}</p>
+                  </div>
+                ))}
+              </div>
+            </WorkflowNode>
+          )}
 
           {/* Node 10 — Riesgo dossier */}
           <WorkflowNode
@@ -227,13 +516,91 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
 
           {/* Node 11 — Registro */}
           <WorkflowNode nodeNumber={11} label="Presentación a Registro" status="pendiente">
-            Proceso externo ante el Ministerio de Salud. Una vez recibido el dossier del fabricante.
+            Proceso externo ante el Ministerio de Salud. Se inicia una vez recibido y validado el dossier del fabricante.
           </WorkflowNode>
 
-          {/* Node 12 — Historial de precios */}
-          <WorkflowNode nodeNumber={12} label="Historial de Participación y Precios" status="pendiente">
-            Pendiente: tabla precioshistoricos vacía — requiere importación de Datos Abiertos (Reportes 5, 6)
-          </WorkflowNode>
+          {/* Node 12 — Participación y Adjudicación */}
+          {(() => {
+            const node12Status = l.desierto
+              ? "blocked"
+              : l.fecha_adj_firme || ofertas.length > 0
+                ? "active"
+                : "pendiente"
+            return (
+              <WorkflowNode nodeNumber={12} label="Historial de Participación y Precios" status={node12Status}>
+                {l.desierto ? (
+                  <div className="rounded-[16px] border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
+                    <p className="text-sm font-semibold text-yellow-300">⚠️ Licitación declarada desierta</p>
+                    <p className="text-xs text-yellow-200/70 mt-0.5">
+                      No se adjudicó ningún proveedor — proceso sin efecto.
+                    </p>
+                  </div>
+                ) : node12Status === "pendiente" ? (
+                  "Sin datos de participación disponibles"
+                ) : (
+                  <div className="space-y-3">
+                    {l.fecha_adj_firme && (
+                      <div className="rounded-[16px] bg-[#2c3833] px-4 py-3 flex items-center gap-3">
+                        <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider shrink-0">Adj. firme</span>
+                        <span className="text-[#f2f5f9] font-medium">{formatDate(l.fecha_adj_firme)}</span>
+                      </div>
+                    )}
+                    {ofertas.length > 0 && (
+                      <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                        {/* Table header */}
+                        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Cédula</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Elegible</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Mérito</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Precio Unit.</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Apertura</span>
+                        </div>
+                        {/* Table rows */}
+                        {ofertas.map((o, i) => (
+                          <div
+                            key={i}
+                            className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm text-[#f2f5f9] truncate">{o.suppliernm ?? "–"}</p>
+                            </div>
+                            <p className="font-mono text-xs text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                              {o.suppliercd ?? "–"}
+                            </p>
+                            <div className="flex justify-center">
+                              {o.elegible === true ? (
+                                <span className="rounded-full bg-[#84a584]/20 px-2 py-0.5 text-xs font-medium text-[#84a584]">Sí</span>
+                              ) : o.elegible === false ? (
+                                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400/80">No</span>
+                              ) : (
+                                <span className="text-xs text-[var(--color-text-muted)]">–</span>
+                              )}
+                            </div>
+                            <p className="text-sm text-[#f2f5f9] text-center">
+                              {o.orden_merito ?? "–"}
+                            </p>
+                            <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                              {o.suppliernm
+                                ? (() => {
+                                    const price = preciosByProveedor.get(o.suppliernm.trim().toLowerCase())
+                                    return price !== undefined ? formatCurrency(price) : "–"
+                                  })()
+                                : "–"
+                              }
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                              {o.fecha_apertura ? formatDate(o.fecha_apertura) : "–"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </WorkflowNode>
+            )
+          })()}
 
           {/* Adjudication info — only when awarded */}
           {!isPublicado && l.supplier_nm && (

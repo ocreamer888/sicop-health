@@ -8,6 +8,8 @@ interface WhatsAppButtonProps {
   biddocEndDt: string | null
   montoColones: number | null
   currencyType: string | null
+  presupuestoEstimado: number | null
+  monedaPresupuesto: string | null
 }
 
 function formatDate(dateStr: string | null): string {
@@ -24,6 +26,8 @@ export function WhatsAppButton({
   biddocEndDt,
   montoColones,
   currencyType,
+  presupuestoEstimado,
+  monedaPresupuesto,
 }: WhatsAppButtonProps) {
   const lines = [
     `*Licitación SICOP*`,
@@ -34,9 +38,12 @@ export function WhatsAppButton({
     `📅 *Deadline:* ${formatDate(biddocEndDt)}`,
   ]
 
-  if (montoColones) {
-    const symbol = currencyType === "USD" ? "$" : "₡"
-    lines.push(`💰 *Monto estimado:* ${symbol}${montoColones.toLocaleString("es-CR")}`)
+  const monto = presupuestoEstimado ?? montoColones
+  const moneda = monedaPresupuesto ?? currencyType
+
+  if (monto) {
+    const symbol = moneda === "USD" ? "$" : "₡"
+    lines.push(`💰 *Monto estimado:* ${symbol}${monto.toLocaleString("es-CR")}`)
   }
 
   lines.push(``, `¿Pueden cumplir con estas especificaciones?`)

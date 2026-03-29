@@ -97,6 +97,13 @@ export interface Licitacion {
   vigencia_contrato: string | null
   unidad_vigencia: string | null
 
+  // — Datos Abiertos enrichment —
+  presupuesto_estimado:    number | null
+  moneda_presupuesto:      string | null
+  modalidad_participacion: string | null
+  fecha_adj_firme:         string | null
+  desierto:                boolean
+
   // — Meta —
   raw_data: Record<string, unknown>
   created_at: string
@@ -136,6 +143,8 @@ export type LicitacionPreview = Pick<
   | "tipo_procedimiento" // para TIPO_LABELS en list view
   | "monto_colones"
   | "currency_type"      // para formatCurrency
+  | "presupuesto_estimado"
+  | "moneda_presupuesto"
   | "biddoc_start_dt"    // era fecha_tramite
   | "biddoc_end_dt"      // deadline — útil para badges de vencimiento
   | "estado"

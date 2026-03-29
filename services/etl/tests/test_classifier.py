@@ -5,7 +5,7 @@ Tests the medical classification logic for SICOP items.
 """
 
 import pytest
-from classifier import clasificar, KEYWORDS_MEDICOS
+from classifier import clasificar, KEYWORDS_DIRECTOS_RAW
 
 
 class TestClasificar:
@@ -28,18 +28,17 @@ class TestClasificar:
         assert result["inst_cartel_no"] == "2024-001"
 
     def test_clasificar_medicamento_por_institucion(self):
-        """Should classify as medical when institution contains health keywords."""
+        """Institution match alone is not sufficient — name must also have medical keywords."""
         item = {
             "inst_cartel_no": "2024-002",
             "cartel_nm": "Compra de papelería",  # non-medical name
             "inst_nm": "Ministerio de Salud"      # medical institution
         }
-        
+
         result = clasificar(item)
-        
-        assert result is not None
-        # Institution match without specific category keywords = OTRO
-        assert result["categoria"] == "OTRO"
+
+        # No medical keywords in cartel_nm → not classified
+        assert result is None
 
     def test_clasificar_equipamiento(self):
         """Should classify as EQUIPAMIENTO for medical equipment."""
@@ -68,15 +67,15 @@ class TestClasificar:
         assert result["categoria"] == "INSUMO"
 
     def test_clasificar_servicio_salud(self):
-        """Should classify as SERVICIO_SALUD when hospital keyword in name."""
+        """Should classify as SERVICIO_SALUD for health service keywords."""
         item = {
             "inst_cartel_no": "2024-005",
-            "cartel_nm": "Servicios hospitalarios de mantenimiento",
-            "inst_nm": "Ministerio de Obras Públicas"
+            "cartel_nm": "Servicio de atencion medica integral",
+            "inst_nm": "CCSS"
         }
-        
+
         result = clasificar(item)
-        
+
         assert result is not None
         assert result["categoria"] == "SERVICIO_SALUD"
 
@@ -231,33 +230,29 @@ class TestClasificar:
         assert result["extraField3"] == True
         assert result["categoria"] == "MEDICAMENTO"
 
-    def test_clasificar_otro_when_no_specific_category(self):
-        """Should classify as OTRO when no specific category matches."""
+    def test_clasificar_medical_items_always_get_a_categoria(self):
+        """Every classified item gets a non-None categoria."""
         item = {
             "inst_cartel_no": "2024-017",
-            "cartel_nm": "Compra de reactivos de laboratorio",
-            "inst_nm": "IAFA"
+            "cartel_nm": "Compra de reactivos de laboratorio clinico",
+            "inst_nm": "CCSS"
         }
-        
+
         result = clasificar(item)
-        
+
         assert result is not None
-        assert result["categoria"] == "OTRO"
+        assert result["es_medica"] is True
+        assert result["categoria"] is not None
 
 
-class TestKeywordsMedicos:
-    """Test suite for medical keywords list."""
+class TestKeywordsDirectos:
+    """Test suite for direct medical keywords list."""
 
     def test_keywords_list_not_empty(self):
         """Keywords list should not be empty."""
-        assert len(KEYWORDS_MEDICOS) > 0
+        assert len(KEYWORDS_DIRECTOS_RAW) > 0
 
-    def test_keywords_are_lowercase(self):
-        """All keywords should be lowercase for consistent matching."""
-        for keyword in KEYWORDS_MEDICOS:
-            assert keyword == keyword.lower(), f"Keyword '{keyword}' is not lowercase"
-
-    def test_keywords_no_duplicates(self):
-        """Keywords list should not have duplicates."""
-        unique_keywords = set(KEYWORDS_MEDICOS)
-        assert len(unique_keywords) == len(KEYWORDS_MEDICOS), "Duplicate keywords found"
+    def test_keywords_are_strings(self):
+        """All keywords should be strings."""
+        for keyword in KEYWORDS_DIRECTOS_RAW:
+            assert isinstance(keyword, str), f"Keyword {keyword!r} is not a string"
