@@ -155,6 +155,16 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
     + (elig.ok === true ? 1 : 0)
     + (l.biddoc_end_dt ? 1 : 0)
 
+  // Build price lookup: normalize supplier name → avg unit price from precios_historicos
+  const preciosByProveedor = new Map<string, number>()
+  for (const p of precios) {
+    if (p.proveedor && p.precio_unitario !== null) {
+      const key = p.proveedor.trim().toLowerCase()
+      const existing = preciosByProveedor.get(key)
+      preciosByProveedor.set(key, existing === undefined ? p.precio_unitario : (existing + p.precio_unitario) / 2)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1393px] px-6 py-8">
       <ActivityRecorder
@@ -344,6 +354,35 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             )}
           </WorkflowNode>
 
+          {/* Aclaraciones — hidden when empty */}
+          {aclaraciones.length > 0 && (
+            <WorkflowNode
+              nodeNumber="A"
+              label={`Aclaraciones (${aclaraciones.length})`}
+              status="active"
+            >
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[auto_1fr_1fr] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Fecha</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Solicitante</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Título</span>
+                </div>
+                {aclaraciones.map((a, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[auto_1fr_1fr] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-start"
+                  >
+                    <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {a.fecha_solicitud ? formatDate(a.fecha_solicitud) : "–"}
+                    </p>
+                    <p className="text-sm text-[#f2f5f9] truncate">{a.solicitante ?? "–"}</p>
+                    <p className="text-sm text-[#f2f5f9] leading-snug">{a.titulo ?? "–"}</p>
+                  </div>
+                ))}
+              </div>
+            </WorkflowNode>
+          )}
+
           {/* Node 6 — Cantidades y precios */}
           <WorkflowNode
             nodeNumber={6}
@@ -418,6 +457,45 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
             Proceso externo: solicita dossier completo al fabricante (bioequivalencia, estabilidad, certificaciones). Tiempo típico: 15–22 días hábiles.
           </WorkflowNode>
 
+          {/* Recursos — hidden when empty; amber dot signals contested tender */}
+          {recursos.length > 0 && (
+            <WorkflowNode
+              nodeNumber="R"
+              label={`Recursos (${recursos.length})`}
+              status="partial"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Licitación con recursos presentados — proceso potencialmente impugnado
+                </p>
+              </div>
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[auto_auto_auto_1fr] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Fecha</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Tipo</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Cédula</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Asunto</span>
+                </div>
+                {recursos.map((r, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[auto_auto_auto_1fr] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-start"
+                  >
+                    <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {r.fecha_solicitud ? formatDate(r.fecha_solicitud) : "–"}
+                    </p>
+                    <p className="text-xs text-[#f2f5f9] whitespace-nowrap">{r.tipo_recurso ?? "–"}</p>
+                    <p className="font-mono text-xs text-[var(--color-text-muted)] whitespace-nowrap">
+                      {r.cedula_proveedor ?? "–"}
+                    </p>
+                    <p className="text-sm text-[#f2f5f9] leading-snug">{r.asunto ?? "–"}</p>
+                  </div>
+                ))}
+              </div>
+            </WorkflowNode>
+          )}
+
           {/* Node 10 — Riesgo dossier */}
           <WorkflowNode
             nodeNumber={10}
@@ -470,18 +548,19 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                     {ofertas.length > 0 && (
                       <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
                         {/* Table header */}
-                        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
                           <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</span>
                           <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Cédula</span>
                           <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Elegible</span>
                           <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Mérito</span>
+                          <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Precio Unit.</span>
                           <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Apertura</span>
                         </div>
                         {/* Table rows */}
                         {ofertas.map((o, i) => (
                           <div
                             key={i}
-                            className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
+                            className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
                           >
                             <div className="min-w-0">
                               <p className="text-sm text-[#f2f5f9] truncate">{o.suppliernm ?? "–"}</p>
@@ -500,6 +579,15 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
                             </div>
                             <p className="text-sm text-[#f2f5f9] text-center">
                               {o.orden_merito ?? "–"}
+                            </p>
+                            <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                              {o.suppliernm
+                                ? (() => {
+                                    const price = preciosByProveedor.get(o.suppliernm.trim().toLowerCase())
+                                    return price !== undefined ? formatCurrency(price) : "–"
+                                  })()
+                                : "–"
+                              }
                             </p>
                             <p className="text-xs text-[var(--color-text-muted)] text-right whitespace-nowrap">
                               {o.fecha_apertura ? formatDate(o.fecha_apertura) : "–"}
