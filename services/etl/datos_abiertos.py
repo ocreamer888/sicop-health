@@ -519,6 +519,7 @@ def parse_op_record(r: dict) -> dict | None:
 
 _SC_FIELDS  = {"presupuesto_estimado", "moneda_presupuesto"}
 _DC_FIELDS  = {"modalidad_participacion"}
+_INSERT_CHUNK_SIZE = 500
 
 
 def _merge_by_instcartelno(rows: list[dict], fields: set) -> list[dict]:
@@ -670,7 +671,8 @@ def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
         for i in range(0, len(instcartelnos), chunk_size):
             chunk = instcartelnos[i : i + chunk_size]
             supabase_client.table("precios_historicos").delete().eq("fuente", fuente).in_("instcartelno", chunk).execute()
-        supabase_client.table("precios_historicos").insert(valid).execute()
+        for i in range(0, len(valid), _INSERT_CHUNK_SIZE):
+            supabase_client.table("precios_historicos").insert(valid[i : i + _INSERT_CHUNK_SIZE]).execute()
         logger.info("DA precios: %d rows inserted (fuente=%s, procedures=%d)", len(valid), fuente, len(instcartelnos))
         return len(valid)
     except Exception as e:
@@ -694,7 +696,8 @@ def upsert_recursos(rows: list[dict], supabase_client) -> int:
         for i in range(0, len(instcartelnos), chunk_size):
             chunk = instcartelnos[i : i + chunk_size]
             supabase_client.table("da_recursos").delete().in_("instcartelno", chunk).execute()
-        supabase_client.table("da_recursos").insert(valid).execute()
+        for i in range(0, len(valid), _INSERT_CHUNK_SIZE):
+            supabase_client.table("da_recursos").insert(valid[i : i + _INSERT_CHUNK_SIZE]).execute()
         logger.info("DA recursos: %d rows inserted", len(valid))
         return len(valid)
     except Exception as e:
@@ -718,7 +721,8 @@ def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
         for i in range(0, len(instcartelnos), chunk_size):
             chunk = instcartelnos[i : i + chunk_size]
             supabase_client.table("da_aclaraciones").delete().in_("instcartelno", chunk).execute()
-        supabase_client.table("da_aclaraciones").insert(valid).execute()
+        for i in range(0, len(valid), _INSERT_CHUNK_SIZE):
+            supabase_client.table("da_aclaraciones").insert(valid[i : i + _INSERT_CHUNK_SIZE]).execute()
         logger.info("DA aclaraciones: %d rows inserted", len(valid))
         return len(valid)
     except Exception as e:

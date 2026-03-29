@@ -655,6 +655,77 @@ def test_upsert_precios_historicos_returns_zero_on_insert_error():
     assert result == 0
 
 
+def test_upsert_precios_historicos_inserts_in_chunks():
+    from datos_abiertos import upsert_precios_historicos, _INSERT_CHUNK_SIZE
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.eq.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    # Build _INSERT_CHUNK_SIZE + 1 rows to force 2 insert calls
+    n = _INSERT_CHUNK_SIZE + 1
+    rows = [
+        {"instcartelno": f"K{i}", "fuente": "AF", "precio_unitario": float(i),
+         "cantidad": 1.0, "proveedor": "P", "descripcion_item": f"item{i}"}
+        for i in range(n)
+    ]
+    result = upsert_precios_historicos(rows, mock_sb)
+    assert result == n
+    assert mock_table.insert.call_count == 2  # 500 rows + 1 row
+
+
+def test_upsert_recursos_inserts_in_chunks():
+    from datos_abiertos import upsert_recursos, _INSERT_CHUNK_SIZE
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    n = _INSERT_CHUNK_SIZE + 1
+    rows = [
+        {"instcartelno": f"K{i}", "asunto": f"R{i}", "cedula_proveedor": "123",
+         "fecha_solicitud": "2026-01-01"}
+        for i in range(n)
+    ]
+    result = upsert_recursos(rows, mock_sb)
+    assert result == n
+    assert mock_table.insert.call_count == 2
+
+
+def test_upsert_aclaraciones_inserts_in_chunks():
+    from datos_abiertos import upsert_aclaraciones, _INSERT_CHUNK_SIZE
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock()
+
+    n = _INSERT_CHUNK_SIZE + 1
+    rows = [
+        {"instcartelno": f"K{i}", "titulo": f"T{i}", "fecha_solicitud": "2026-01-01",
+         "solicitante": "S"}
+        for i in range(n)
+    ]
+    result = upsert_aclaraciones(rows, mock_sb)
+    assert result == n
+    assert mock_table.insert.call_count == 2
+
+
 # ── run_datos_abiertos with AF ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio
