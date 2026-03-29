@@ -547,17 +547,23 @@ def upsert_scalar_enrichments(sc_rows: list[dict], dc_rows: list[dict], supabase
 
     sc_records = _merge_by_instcartelno([r for r in sc_rows if r], _SC_FIELDS)
     if sc_records:
-        supabase_client.table("licitaciones_medicas").upsert(
-            sc_records, on_conflict="instcartelno"
-        ).execute()
-        total += len(sc_records)
+        try:
+            supabase_client.table("licitaciones_medicas").upsert(
+                sc_records, on_conflict="instcartelno"
+            ).execute()
+            total += len(sc_records)
+        except Exception as e:
+            logger.error("DA scalar SC upsert failed: %s", e)
 
     dc_records = _merge_by_instcartelno([r for r in dc_rows if r], _DC_FIELDS)
     if dc_records:
-        supabase_client.table("licitaciones_medicas").upsert(
-            dc_records, on_conflict="instcartelno"
-        ).execute()
-        total += len(dc_records)
+        try:
+            supabase_client.table("licitaciones_medicas").upsert(
+                dc_records, on_conflict="instcartelno"
+            ).execute()
+            total += len(dc_records)
+        except Exception as e:
+            logger.error("DA scalar DC upsert failed: %s", e)
 
     logger.info("DA scalar: %d rows patched (sc=%d dc=%d)", total, len(sc_records), len(dc_records))
     return total

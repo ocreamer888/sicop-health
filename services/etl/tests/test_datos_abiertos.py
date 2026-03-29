@@ -239,6 +239,21 @@ def test_upsert_scalar_returns_zero_for_empty():
     assert upsert_scalar_enrichments([], mock_sb) == 0
 
 
+def test_upsert_scalar_enrichments_returns_zero_on_db_error():
+    from datos_abiertos import upsert_scalar_enrichments
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("DB constraint violation")
+
+    sc = [{"instcartelno": "2026CD-001-0031700001", "presupuesto_estimado": 1000.0, "moneda_presupuesto": "CRC"}]
+    dc = []
+    # Must NOT raise — must return 0
+    result = upsert_scalar_enrichments(sc, dc, mock_sb)
+    assert result == 0
+
+
 # ── upsert_ofertas ────────────────────────────────────────────────────────────
 
 def test_upsert_ofertas_skips_rows_without_suppliercd():
