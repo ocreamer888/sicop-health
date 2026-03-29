@@ -648,12 +648,16 @@ def upsert_precios_historicos(rows: list[dict], supabase_client) -> int:
     instcartelnos = list({r["instcartelno"] for r in valid})
     # Delete existing rows for these procedures + fuente in chunks to avoid URL length limits
     chunk_size = 100
-    for i in range(0, len(instcartelnos), chunk_size):
-        chunk = instcartelnos[i : i + chunk_size]
-        supabase_client.table("precios_historicos").delete().eq("fuente", fuente).in_("instcartelno", chunk).execute()
-    supabase_client.table("precios_historicos").insert(valid).execute()
-    logger.info("DA precios: %d rows inserted (fuente=%s, procedures=%d)", len(valid), fuente, len(instcartelnos))
-    return len(valid)
+    try:
+        for i in range(0, len(instcartelnos), chunk_size):
+            chunk = instcartelnos[i : i + chunk_size]
+            supabase_client.table("precios_historicos").delete().eq("fuente", fuente).in_("instcartelno", chunk).execute()
+        supabase_client.table("precios_historicos").insert(valid).execute()
+        logger.info("DA precios: %d rows inserted (fuente=%s, procedures=%d)", len(valid), fuente, len(instcartelnos))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA precios insert failed (fuente=%s): %s", fuente, e)
+        return 0
 
 
 def upsert_recursos(rows: list[dict], supabase_client) -> int:
@@ -668,12 +672,16 @@ def upsert_recursos(rows: list[dict], supabase_client) -> int:
     valid = list(seen.values())
     instcartelnos = list({r["instcartelno"] for r in valid})
     chunk_size = 100
-    for i in range(0, len(instcartelnos), chunk_size):
-        chunk = instcartelnos[i : i + chunk_size]
-        supabase_client.table("da_recursos").delete().in_("instcartelno", chunk).execute()
-    supabase_client.table("da_recursos").insert(valid).execute()
-    logger.info("DA recursos: %d rows inserted", len(valid))
-    return len(valid)
+    try:
+        for i in range(0, len(instcartelnos), chunk_size):
+            chunk = instcartelnos[i : i + chunk_size]
+            supabase_client.table("da_recursos").delete().in_("instcartelno", chunk).execute()
+        supabase_client.table("da_recursos").insert(valid).execute()
+        logger.info("DA recursos: %d rows inserted", len(valid))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA recursos insert failed: %s", e)
+        return 0
 
 
 def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
@@ -688,12 +696,16 @@ def upsert_aclaraciones(rows: list[dict], supabase_client) -> int:
     valid = list(seen.values())
     instcartelnos = list({r["instcartelno"] for r in valid})
     chunk_size = 100
-    for i in range(0, len(instcartelnos), chunk_size):
-        chunk = instcartelnos[i : i + chunk_size]
-        supabase_client.table("da_aclaraciones").delete().in_("instcartelno", chunk).execute()
-    supabase_client.table("da_aclaraciones").insert(valid).execute()
-    logger.info("DA aclaraciones: %d rows inserted", len(valid))
-    return len(valid)
+    try:
+        for i in range(0, len(instcartelnos), chunk_size):
+            chunk = instcartelnos[i : i + chunk_size]
+            supabase_client.table("da_aclaraciones").delete().in_("instcartelno", chunk).execute()
+        supabase_client.table("da_aclaraciones").insert(valid).execute()
+        logger.info("DA aclaraciones: %d rows inserted", len(valid))
+        return len(valid)
+    except Exception as e:
+        logger.error("DA aclaraciones insert failed: %s", e)
+        return 0
 
 
 def upsert_ordenes_pedido(rows: list[dict], supabase_client) -> int:

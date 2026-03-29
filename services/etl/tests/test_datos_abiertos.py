@@ -600,6 +600,27 @@ def test_upsert_precios_historicos_skips_empty_desc_and_no_precio():
     assert count == 2
 
 
+def test_upsert_precios_historicos_returns_zero_on_insert_error():
+    from datos_abiertos import upsert_precios_historicos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    # delete chain succeeds
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.eq.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    # insert raises
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("insert error")
+
+    rows = [{"instcartelno": "2026CD-001", "fuente": "AF", "precio_unitario": 10.0, "cantidad": 1.0,
+             "proveedor": "A", "descripcion_item": "item"}]
+    result = upsert_precios_historicos(rows, mock_sb)
+    assert result == 0
+
+
 # ── run_datos_abiertos with AF ─────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -837,6 +858,23 @@ def test_upsert_recursos_returns_zero_for_empty():
     assert upsert_recursos([], MagicMock()) == 0
 
 
+def test_upsert_recursos_returns_zero_on_insert_error():
+    from datos_abiertos import upsert_recursos
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("insert error")
+
+    rows = [{"instcartelno": "A", "asunto": "R1", "cedula_proveedor": "123", "fecha_solicitud": "2026-01-01"}]
+    result = upsert_recursos(rows, mock_sb)
+    assert result == 0
+
+
 # ── upsert_aclaraciones ────────────────────────────────────────────────────────
 
 def test_upsert_aclaraciones_inserts_valid_rows():
@@ -858,6 +896,23 @@ def test_upsert_aclaraciones_inserts_valid_rows():
 def test_upsert_aclaraciones_returns_zero_for_empty():
     from datos_abiertos import upsert_aclaraciones
     assert upsert_aclaraciones([], MagicMock()) == 0
+
+
+def test_upsert_aclaraciones_returns_zero_on_insert_error():
+    from datos_abiertos import upsert_aclaraciones
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_delete = MagicMock()
+    mock_table.delete.return_value = mock_delete
+    mock_delete.in_.return_value = mock_delete
+    mock_delete.execute.return_value = MagicMock()
+    mock_table.insert.return_value = mock_table
+    mock_table.execute.side_effect = Exception("insert error")
+
+    rows = [{"instcartelno": "A", "titulo": "T", "fecha_solicitud": "2026-01-01", "solicitante": "S"}]
+    result = upsert_aclaraciones(rows, mock_sb)
+    assert result == 0
 
 
 # ── upsert_ordenes_pedido ──────────────────────────────────────────────────────
