@@ -445,7 +445,11 @@ def parse_r_record(r: dict) -> dict | None:
 
 def parse_a_record(r: dict) -> dict | None:
     """A report → da_aclaraciones row (clarifications per tender)."""
-    key = r.get("NUMERO_PROCEDIMIENTO") or r.get("NRO_PROCEDIMIENTO")
+    key = (
+        r.get("INST_CARTEL_NO")
+        or r.get("NUMERO_PROCEDIMIENTO")
+        or r.get("NRO_PROCEDIMIENTO")
+    )
     if not key:
         return None
     return {
