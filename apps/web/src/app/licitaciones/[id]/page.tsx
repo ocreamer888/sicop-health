@@ -27,6 +27,27 @@ interface DaOferta {
   fecha_apertura: string | null
 }
 
+interface PrecioHistorico {
+  proveedor: string | null
+  precio_unitario: number | null
+  cantidad: number | null
+  unidad: string | null
+  fuente: string | null
+}
+
+interface DaAclaracion {
+  titulo: string | null
+  fecha_solicitud: string | null
+  solicitante: string | null
+}
+
+interface DaRecurso {
+  asunto: string | null
+  cedula_proveedor: string | null
+  tipo_recurso: string | null
+  fecha_solicitud: string | null
+}
+
 const categoriaLabels: Record<Categoria, string> = {
   MEDICAMENTO: "Medicamento",
   EQUIPAMIENTO: "Equipamiento",
@@ -79,14 +100,47 @@ async function getUserProfile(userId: string): Promise<UserProfile | null> {
   return data as UserProfile | null
 }
 
+async function getPrecios(instcartelno: string): Promise<PrecioHistorico[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("precios_historicos")
+    .select("proveedor, precio_unitario, cantidad, unidad, fuente")
+    .eq("instcartelno", instcartelno)
+    .order("proveedor", { ascending: true })
+  return (data ?? []) as PrecioHistorico[]
+}
+
+async function getAclaraciones(instcartelno: string): Promise<DaAclaracion[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_aclaraciones")
+    .select("titulo, fecha_solicitud, solicitante")
+    .eq("instcartelno", instcartelno)
+    .order("fecha_solicitud", { ascending: true })
+  return (data ?? []) as DaAclaracion[]
+}
+
+async function getRecursos(instcartelno: string): Promise<DaRecurso[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("da_recursos")
+    .select("asunto, cedula_proveedor, tipo_recurso, fecha_solicitud")
+    .eq("instcartelno", instcartelno)
+    .order("fecha_solicitud", { ascending: true })
+  return (data ?? []) as DaRecurso[]
+}
+
 export default async function LicitacionDetailPage({ params }: PageProps) {
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const [l, ofertas, profile] = await Promise.all([
+  const [l, ofertas, profile, precios, aclaraciones, recursos] = await Promise.all([
     getLicitacion(id),
     getOfertas(id),
     user ? getUserProfile(user.id) : Promise.resolve(null),
+    getPrecios(id),
+    getAclaraciones(id),
+    getRecursos(id),
   ])
   if (!l) notFound()
 
@@ -107,6 +161,7 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
         instcartelno={l.instcartelno}
         instCode={l.inst_code}
         biddocStartDt={l.biddoc_start_dt}
+        instnm={l.instnm ?? null}
       />
 
       {/* Back */}
@@ -290,8 +345,48 @@ export default async function LicitacionDetailPage({ params }: PageProps) {
           </WorkflowNode>
 
           {/* Node 6 — Cantidades y precios */}
-          <WorkflowNode nodeNumber={6} label="Cantidades y Precios por Línea" status="pendiente">
-            Pendiente: datos de líneas de cartel no disponibles en Datos Abiertos aún
+          <WorkflowNode
+            nodeNumber={6}
+            label="Cantidades y Precios por Línea"
+            status={precios.length > 0 ? "active" : "pendiente"}
+          >
+            {precios.length === 0 ? (
+              <p className="text-sm text-[var(--color-text-muted)]">Sin precios registrados.</p>
+            ) : (
+              <div className="overflow-hidden rounded-[16px] border border-[#3d4d45]">
+                <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#1a1f1a] px-4 py-2">
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider">Proveedor</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Precio Unit.</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Cantidad</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-right">Unidad</span>
+                  <span className="text-xs text-[var(--color-text-muted)] uppercase tracking-wider text-center">Fuente</span>
+                </div>
+                {precios.map((p, i) => (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 bg-[#2c3833] px-4 py-3 border-t border-[#3d4d45] items-center"
+                  >
+                    <p className="text-sm text-[#f2f5f9] truncate min-w-0">{p.proveedor ?? "–"}</p>
+                    <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                      {p.precio_unitario !== null ? formatCurrency(p.precio_unitario) : "–"}
+                    </p>
+                    <p className="font-mono text-sm text-[#f2f5f9] text-right whitespace-nowrap">
+                      {p.cantidad?.toLocaleString("es-CR") ?? "–"}
+                    </p>
+                    <p className="text-sm text-[var(--color-text-muted)] text-right">{p.unidad ?? "–"}</p>
+                    <div className="flex justify-center">
+                      {p.fuente === "AF" ? (
+                        <span className="rounded-full bg-[#84a584]/20 px-2 py-0.5 text-xs font-medium text-[#84a584]">AF</span>
+                      ) : p.fuente === "C" ? (
+                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-400">C</span>
+                      ) : (
+                        <span className="text-xs text-[var(--color-text-muted)]">–</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </WorkflowNode>
 
           {/* Node 7 — Contactar fabricante */}
